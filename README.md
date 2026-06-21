@@ -1,100 +1,184 @@
-# AI Operations Copilot
+<div align="center">
 
-A grounded, async AI copilot for on-call engineers. It turns incident tickets,
-logs, and runbooks into **cited, confidence-scored** summaries, runbook answers,
-and root-cause analyses — with a human-in-the-loop edit-before-save workflow.
+# 🛠️ AI Operations Copilot
 
-> Production-grade reference implementation: async job queue, SSE streaming,
-> fail-closed PII redaction, prompt-injection defense, multi-tenant isolation,
-> Redis-backed rate limiting + budget metering, signed SSE tokens, MongoDB Atlas
-> Vector Search RAG, CI with real-DB integration tests, and `npm audit`: 0 vulns.
+**Grounded, async AI for on-call engineers** — turns incident tickets, logs, and
+runbooks into **cited, confidence-scored** summaries, runbook answers, and
+root-cause analyses, with a human-in-the-loop edit-before-save workflow.
 
-## Core-3 features
+[![CI](https://github.com/Prasadpolnatii/Claude/actions/workflows/ci.yml/badge.svg)](https://github.com/Prasadpolnatii/Claude/actions/workflows/ci.yml)
+![npm audit](https://img.shields.io/badge/npm_audit-0_vulnerabilities-brightgreen)
+![types](https://img.shields.io/badge/TypeScript-strict-blue)
+![license](https://img.shields.io/badge/license-MIT-green)
+
+</div>
+
+---
+
+## Project overview
+
+On-call engineers lose time triaging tickets, hunting through runbooks, and
+writing up incidents. **AI Operations Copilot** compresses that work — but unlike a
+naive chatbot, every answer is **grounded** in the team's own data (it cites its
+sources), carries a **confidence score**, is labelled *"verify before acting,"* and
+must be **reviewed and edited by a human before it's saved.**
+
+The interesting engineering is everything around the LLM that makes it safe and
+operable: an **async job queue with SSE streaming**, a **fail-closed PII redaction
+proxy**, **prompt-injection defense**, **multi-tenant isolation**, **Redis-backed
+rate limiting + token budgets**, **signed short-lived stream tokens**, and
+**MongoDB Atlas Vector Search** for retrieval — shipped with CI that runs
+integration tests against a real database and **0 dependency vulnerabilities**.
+
+## Features
 
 | Feature | What it does |
 |---------|-------------|
-| **Ticket Summarization** | Summarizes a support/incident ticket (headline, impact, next actions), cited to the source. |
-| **SOP Search (RAG)** | Upload runbooks (PDF/.md/.txt) → chunk → embed → MongoDB Atlas Vector Search → grounded answer with citations. |
-| **RCA Generation** | Incident summary + log snippet → retrieves SOPs → produces a cited root-cause document. |
+| 🎫 **Ticket Summarization** | Summarizes a ticket (headline, impact, next actions), cited to the source. |
+| 📚 **SOP Search (RAG)** | Upload runbooks (PDF/.md/.txt) → chunk → embed → Atlas Vector Search → grounded answer with citations. |
+| 🔍 **RCA Generation** | Incident + log snippet → retrieves SOPs → produces a cited root-cause document. |
 
-Every AI output streams over SSE, shows **citations + a confidence score**, is
-labelled "verify before acting," and can be **edited by a human before it's saved**.
+Every output streams over SSE, shows **citations + a confidence score**, and is
+**editable by a human before save**.
 
-## Stack
+## Architecture diagram
 
-React (Vite) · Express · BullMQ + Redis · MongoDB / Atlas Vector Search · OpenAI ·
-TypeScript (ESM) · npm workspaces monorepo.
+```mermaid
+flowchart LR
+  subgraph Client["🖥️ React SPA"]
+    UI["AIBlock trust UX<br/>citations · confidence · edit"]
+  end
+  subgraph API["⚙️ Express API"]
+    A["JWT auth · rate limit"]
+  end
+  subgraph W["🔧 Worker (BullMQ)"]
+    O["redact → retrieve → fence → LLM → validate"]
+  end
+  R[("Redis<br/>queue · budget · rate · mock store")]
+  M[("MongoDB / Atlas<br/>Vector Search")]
+  AI["OpenAI<br/>chat + embeddings"]
 
-## Quick start (≈ 15 min, no OpenAI key needed)
+  UI -->|HTTPS Bearer| A -->|202 + jobId| R
+  UI <-->|"SSE (60s stream token)"| A
+  R --> O
+  O -->|persist / retrieve| M
+  O -->|"redact, then call"| AI
+  A --> M
+```
+
+Two processes share Redis + MongoDB: the API enqueues generative work and returns
+`202 + jobId`; the worker runs the LLM and streams results back over SSE. Full
+diagrams in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## Tech stack
+
+| Layer | Tech |
+|-------|------|
+| Frontend | React 18, Vite, TypeScript |
+| API | Express, TypeScript (ESM) |
+| Async | BullMQ + Redis (queue, events) |
+| Data | MongoDB / Atlas Vector Search (Mongoose) |
+| AI | OpenAI (chat + embeddings), RAG |
+| Auth | JWT (HS256), signed SSE tokens |
+| Tooling | npm workspaces monorepo, GitHub Actions CI |
+
+## Setup instructions
+
+**Requirements:** Node 20+, Docker (for local Mongo/Redis).
 
 ```bash
 docker compose up -d            # Mongo + Redis
 npm install
 cp .env.example .env            # LLM_MODE=mock by default → no key, no spend
 npm run seed                    # seeds a demo tenant, prints a dev JWT
-npm run dev                     # API (4000) + web (5173)
+npm run dev                     # API :4000 + web :5173
 npm run worker                  # second terminal
 # open http://localhost:5173, paste the JWT
 ```
 
-Flip to live OpenAI: set `LLM_MODE=openai` + `OPENAI_API_KEY` in `.env`.
 Mock mode runs the **entire** flow (including SOP RAG via a Redis store) with no
-database and no API key.
+database and no API key. Flip to live with `LLM_MODE=openai` + `OPENAI_API_KEY`.
+For MongoDB Atlas, see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+
+## Environment variables
+
+Validated by zod at boot. Full table: [docs/ENVIRONMENT_VARIABLES.md](docs/ENVIRONMENT_VARIABLES.md).
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `LLM_MODE` | `mock` | `mock` (no key/spend) or `openai` |
+| `OPENAI_API_KEY` | — | required when `LLM_MODE=openai` |
+| `MONGODB_URI` | `mongodb://localhost:27017/ops_copilot` | Mongo / Atlas SRV string |
+| `REDIS_URL` | `redis://localhost:6379` | queue, budget, rate limit, mock store |
+| `JWT_SECRET` | — (min 16) | HS256 secret; placeholder rejected in prod |
+| `TENANT_DAILY_TOKEN_BUDGET` | `2000000` | per-tenant daily token cap |
+
+## Screenshots
+
+> _Add screenshots/GIFs here for the portfolio showcase._
+
+| Incident Workspace (Ticket Summarization) | SOP Search (RAG) | RCA Generation |
+|---|---|---|
+| _`docs/images/ticket-summary.png`_ | _`docs/images/sop-search.png`_ | _`docs/images/rca.png`_ |
+
+Each shows the `AIBlock`: streamed output, **citations**, a **confidence score**,
+the "verify before acting" badge, and the **edit-before-save** flow.
+
+## API overview
+
+17 endpoints across `jobs`, `tickets`, `sops`, `rca`, + health. Generative work is
+async (`202 + jobId` → SSE). Full reference: [docs/API_REFERENCE.md](docs/API_REFERENCE.md).
+
+```
+POST /api/jobs                      enqueue a generative job
+GET  /api/jobs/:id/stream?t=        SSE stream (signed token)
+POST /api/tickets/:id/summarize     → jobId   |  PUT /api/tickets/:id/summary
+POST /api/sops/upload               runbook → chunk → embed → store
+POST /api/sops/search               grounded RAG answer → jobId
+POST /api/rca/generate              → jobId   |  POST /api/rca  (persist)
+```
+
+## Security features
+
+`npm audit`: **0 vulnerabilities**. Full report: [docs/SECURITY.md](docs/SECURITY.md).
+
+- 🔒 **Fail-closed PII redaction** before every OpenAI call (chat + embeddings)
+- 🛡️ **Prompt-injection defense** — per-call nonce fencing; output never executed
+- 🏢 **Multi-tenant isolation** — every query, Redis key, and job-ownership check
+- 🔑 **JWT (HS256, pinned)** + **signed 60s job-scoped SSE tokens**
+- 🚦 **Rate limiting** (Redis, per-IP + per-tenant) + **token budget meter**
+- 🧱 **NoSQL-injection protection** (zod + ObjectId validation)
+
+## Future roadmap
+
+- **Hardening** ([docs/ROADMAP.md](docs/ROADMAP.md)): live Atlas vector-search run,
+  secrets manager, observability, security headers, DLQ, backups.
+- **v2 agents** ([docs/FUTURE_ROADMAP.md](docs/FUTURE_ROADMAP.md)): log-stream
+  analysis, command-recommendation agent, email drafting, ChatOps, auto-remediation
+  advisor.
 
 ## Documentation
 
-| Doc | Contents |
-|-----|----------|
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System architecture, folder structure, feature + auth diagrams |
-| [docs/API_REFERENCE.md](docs/API_REFERENCE.md) | All 17 endpoints, auth, payloads, error envelope |
-| [docs/DATABASE_SCHEMA.md](docs/DATABASE_SCHEMA.md) | Collections, indexes, Atlas Vector Search, Redis keys |
-| [docs/QUEUE_AND_WORKER_FLOW.md](docs/QUEUE_AND_WORKER_FLOW.md) | Queue/worker + SSE + sequence diagrams |
-| [docs/SECURITY.md](docs/SECURITY.md) | Security posture report (auth, redaction, injection, limits) |
-| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Local, Docker Compose, Atlas, Redis, GitHub Actions |
-| [docs/ENVIRONMENT_VARIABLES.md](docs/ENVIRONMENT_VARIABLES.md) | Every env var, defaults, and effect |
-| [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Common failures and fixes |
-| [docs/ROADMAP.md](docs/ROADMAP.md) | Near-term hardening roadmap |
-| [docs/FUTURE_ROADMAP.md](docs/FUTURE_ROADMAP.md) | v2 agents (log analysis, ChatOps, auto-remediation) |
-| [docs/INTERVIEW_GUIDE.md](docs/INTERVIEW_GUIDE.md) | Architecture deep-dive + STAR interview answers |
-| [docs/RESUME_PROJECT_DESCRIPTION.md](docs/RESUME_PROJECT_DESCRIPTION.md) | Resume bullets (1-line → detailed) |
+[Architecture](docs/ARCHITECTURE.md) · [API](docs/API_REFERENCE.md) ·
+[Database](docs/DATABASE_SCHEMA.md) · [Queue/Worker](docs/QUEUE_AND_WORKER_FLOW.md) ·
+[Security](docs/SECURITY.md) · [Deployment](docs/DEPLOYMENT.md) ·
+[Env Vars](docs/ENVIRONMENT_VARIABLES.md) · [Troubleshooting](docs/TROUBLESHOOTING.md) ·
+[Roadmap](docs/ROADMAP.md)
 
-## Repository layout
+**Portfolio:** [Project Showcase](PROJECT_SHOWCASE.md) ·
+[Interview Q&A](INTERVIEW_QA.md) · [Resume Bullets](RESUME_BULLETS.md) ·
+[Presentation](PORTFOLIO_PRESENTATION.md) · [Final Report](FINAL_REPORT.md)
 
-```
-packages/shared   API↔web contract (types, error envelope, job/grounding types)
-apps/api          Express API + BullMQ worker + LangChain-style orchestration
-  src/auth        JWT + signed SSE tokens
-  src/db          Mongo connector + index bootstrap
-  src/features    redaction, chunker, sopStore, vectorMath, audit/budget, summary, rca
-  src/llm         OpenAI client (+mock), orchestrator (redact→retrieve→fence→LLM)
-  src/middleware  error envelope, requireMongo, rateLimit
-  src/models      Mongoose schemas
-  src/queue       BullMQ queue + worker
-  src/routes      jobs, tickets, sops, rca
-  src/integration real-DB integration tests
-  atlas           Atlas Vector Search index definition
-apps/web          React SPA — AIBlock trust UX, SSE streaming, 3 feature pages
-.github/workflows CI: typecheck + tests (real Mongo + Redis) + web build
-```
-
-## Tests & CI
+## Status & tests
 
 ```bash
 npm run typecheck    # tsc -b across all workspaces
-npm test             # api unit + integration (integration needs MONGODB_URI)
+npm test             # 24 unit + 3 integration (real DB in CI)
 ```
 
-CI (GitHub Actions) runs typecheck, the full test suite against **real `mongo:7`
-+ `redis:7` services**, and the web build on every push/PR. `npm audit`: **0
-vulnerabilities**.
-
-## Status
-
-**Feature-complete and frozen.** Core-3 built, reviewed (no open P1/P2), hardened
-(rate limiting, signed SSE, budget meter, secret guard), CI-gated, and verified
-against a real database. See [docs/ROADMAP.md](docs/ROADMAP.md) for the remaining
-production-hardening checklist.
+**Feature-complete and frozen.** Core-3 built, reviewed (no open P1/P2), hardened,
+CI-gated against a real database, and fully documented.
 
 ## License
 
-MIT (reference/portfolio project).
+MIT.
