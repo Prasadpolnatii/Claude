@@ -1,168 +1,201 @@
-# AI Operations Copilot — Architecture & Status
+# Architecture
 
-Grounded, async AI copilot for on-call engineers. Core-3: Ticket Summarization,
-SOP Search, RCA Generation. Stack: React + Express + MongoDB (Atlas Vector
-Search) + Redis/BullMQ + OpenAI.
+Grounded, async AI copilot for on-call engineers. Three features
+(Ticket Summarization, SOP Search, RCA Generation) share one architecture:
+**async job → SSE stream → grounded result → human edit → save**.
 
-## 1. Architecture diagram
+## System architecture
 
-```
-┌──────────────┐   HTTPS    ┌───────────────────────────┐
-│  React SPA   │ ─────────► │        Express API        │
-│ (Vite)       │            │  - JWT auth (HS256)       │
-│  AIBlock     │ ◄───SSE────│  - rate limit (Redis)     │
-│  trust UX    │  tokens    │  - uniform error envelope │
-└──────────────┘            └─────────────┬─────────────┘
-        ▲                                  │ enqueue (202 + jobId)
-        │ stream-token (60s, job-scoped)   ▼
-        │                         ┌──────────────────┐
-        │                         │  BullMQ / Redis  │  ◄── token-budget meter
-        │                         │   generative Q   │      mock SOP store (no Mongo)
-        │                         └────────┬─────────┘      rate-limit counters
-        │                                  │ process
-        │            progress/done         ▼
-        └────────────────────────┌──────────────────┐
-                                  │   Worker (×N)    │
-                                  │  orchestrator:   │
-                                  │  redact→retrieve │
-                                  │  →fence→LLM      │
-                                  └───┬──────────┬───┘
-                                      │          │
-                  ┌───────────────────▼──┐   ┌───▼──────────────────┐
-                  │ MongoDB / Atlas      │   │ OpenAI               │
-                  │  Vector Search       │   │  chat + embeddings   │
-                  │  tickets, summaries, │   │  ↑ redaction proxy   │
-                  │  sops(+embedding),   │   │   (fail-closed)      │
-                  │  rca, audit          │   └──────────────────────┘
-                  └──────────────────────┘
-```
+```mermaid
+flowchart TB
+  subgraph Client["Browser"]
+    SPA["React SPA<br/>AIBlock trust UX · SSE"]
+  end
 
-**Two processes share Redis + Mongo:** the API serves HTTP only; the worker runs
-the LLM. The API stays up without Mongo (health + jobs work; SOP search uses a
-Redis store; ticket/RCA persistence returns `503 db_unavailable`).
+  subgraph API["Express API (process 1)"]
+    MW["JWT auth · rate limit · error envelope"]
+    R["Routes: jobs · tickets · sops · rca"]
+  end
 
-## 2. API list
+  subgraph Worker["BullMQ Worker xN (process 2)"]
+    ORC["Orchestrator<br/>redact → retrieve → fence → LLM → validate"]
+  end
 
-Auth: `Authorization: Bearer <jwt>` unless noted. Generative endpoints are rate
-limited to 30/60s per tenant; all `/api` to 300/60s per IP.
+  subgraph Redis["Redis"]
+    Q["BullMQ queue"]
+    B["budget meter"]
+    RL["rate-limit counters"]
+    MS["mock SOP store (no-Mongo mode)"]
+  end
 
-| Method | Path | Auth | Mongo | Purpose |
-|--------|------|------|-------|---------|
-| GET  | `/api/health` | none | no | liveness + `{ llmMode, mongo }` |
-| POST | `/api/jobs` | bearer | no | enqueue a generative job → `202 {jobId}` |
-| GET  | `/api/jobs/:id` | bearer | no | poll job status/result |
-| GET  | `/api/jobs/:id/stream-token` | bearer | no | mint a 60s job-scoped SSE token |
-| GET  | `/api/jobs/:id/stream?t=` | stream token | no | SSE: token / done / error |
-| GET  | `/api/tickets` | bearer | **yes** | tenant ticket inbox |
-| POST | `/api/tickets` | bearer | **yes** | ingest a ticket |
-| POST | `/api/tickets/:id/summarize` | bearer | **yes** | enqueue ticket summary → `{jobId}` |
-| GET  | `/api/tickets/:id/summary` | bearer | **yes** | fetch saved summary |
-| PUT  | `/api/tickets/:id/summary` | bearer | **yes** | persist reviewed summary (upsert) |
-| POST | `/api/sops/upload` | bearer | optional | PDF/.md/.txt → extract→chunk→embed→store |
-| POST | `/api/sops` | bearer | optional | add a runbook section directly |
-| POST | `/api/sops/search` | bearer | optional | grounded answer (async) → `{jobId}` |
-| GET  | `/api/sops/search?q=` | bearer | optional | fast raw retrieval (no LLM) |
-| POST | `/api/rca/generate` | bearer | optional | enqueue grounded RCA → `{jobId}` |
-| POST | `/api/rca` | bearer | **yes** | persist reviewed RCA (upsert by incidentId) |
-| GET  | `/api/rca/:id` | bearer | **yes** | fetch saved RCA |
+  MONGO[("MongoDB / Atlas<br/>Vector Search<br/>tickets · summaries · sops · rca")]
+  OPENAI["OpenAI<br/>chat + embeddings"]
 
-"optional" = works in mock mode via the Redis store; uses Mongo/Atlas when up.
-
-## 3. Database schema (MongoDB)
-
-Every document is tenant-scoped (`tenantId`, indexed). Timestamps on all.
-
-| Collection | Key fields | Indexes |
-|------------|-----------|---------|
-| `users` | tenantId, email, role | unique (tenantId, email) |
-| `tickets` | tenantId, externalId, title, body, status | tenantId |
-| `incidents` | tenantId, title, summary, logSnippet, ticketId | tenantId |
-| `sops` | tenantId, title, section, **embedding[1536]**, embeddingVersion | tenantId; **Atlas Vector Search `sop_vector_index`** on `embedding` (cosine) + `tenantId` filter |
-| `summaries` | tenantId, ticketId, headline, summary, impact, nextActions[], confidence, citations[], model, editedByHuman | **unique (tenantId, ticketId)** |
-| `rca` | tenantId, incidentId, title, rootCause, contributingFactors[], timeline[], remediation[], confidence, citations[], editedByHuman | tenantId, (tenantId, incidentId) |
-| `redactionaudits` | tenantId, jobId, hits, at | — |
-
-Redis keys: `bull:*` (queue), `budget:{tenant}:{day}` (token meter), `rl:*`
-(rate limit), `sops:mock:{tenant}` (no-Mongo SOP store).
-
-## 4. Queue & worker flow
-
-```
-client ──POST /…/generate|summarize|search──► API
-  API: validate → rate-limit → generativeQueue.add(type, {tenantId, input})
-       → 202 { jobId }
-  client ──GET /jobs/:id/stream-token──► API → 60s token
-  client ──EventSource ?t=token──► API SSE handler
-       subscribes to queueEvents(progress|completed|failed); if already
-       finished, emits terminal event immediately (race-safe)
-
-worker (BullMQ, concurrency 4):
-  isOverBudget(tenant)?  ── yes ─► throw budget_exceeded (encoded ApiError)
-        │ no
-  orchestrator:
-     guardedRedact(inputs)            (fail-closed; PII never reaches OpenAI)
-     → searchSops (Atlas $vectorSearch │ cosine fallback │ Redis mock)
-     → fence untrusted as <UNTRUSTED id=nonce> … (prompt-injection defense)
-     → chat(json|prose)  ── prose streams tokens; json shows "Thinking…"
-     → validate JSON vs zod schema
-     → GroundedResult { data, citations, confidence, redacted }
-     recordTokens(tenant)  (Redis meter)
-  on failure: JSON-encode classified ApiError → BullMQ failedReason
-              → SSE decodes real { code, retryable }
+  SPA -->|"HTTPS (Bearer JWT)"| MW --> R
+  R -->|"enqueue → 202 {jobId}"| Q
+  SPA <-->|"SSE (60s stream token)"| R
+  Q --> ORC
+  ORC -->|persist / retrieve| MONGO
+  ORC -->|"redact, then call"| OPENAI
+  ORC --> B
+  R --> MONGO
+  R --> RL
+  ORC -.->|"no-Mongo fallback"| MS
 ```
 
-## 5. Security posture report
+**Why two processes?** Generative calls take 10–60 s. Running them in an Express
+handler would exhaust the event loop and time out. The API stays responsive and
+returns `202 + jobId`; the worker does the slow work and streams results back via
+SSE. They communicate only through Redis (queue + events) and MongoDB.
 
-| Area | Status |
-|------|--------|
-| Dependencies | `npm audit`: **0 vulnerabilities** (removed unused `@langchain/openai` → killed langsmith SSRF/proto-pollution) |
-| Secrets | none hardcoded; `.env` gitignored, never committed; JWT placeholder rejected in production |
-| AuthN | JWT HS256 **pinned**; header-only for API; short-lived (60s) job-scoped SSE tokens |
-| AuthZ / tenancy | every query tenant-scoped; job ownership checked; Redis keys tenant-namespaced |
-| Injection | no `exec`/`eval`/`child_process`; no NoSQL injection (zod/ObjectId-validated, no req objects in filters) |
-| Prompt injection | untrusted content fenced with per-call nonce; output never executed |
-| PII egress | fail-closed redaction proxy before **every** OpenAI call (incl. search-query embed) |
-| Rate limiting | Redis fixed-window: 300/60s per IP, 30/60s per tenant on generative |
-| Errors | uniform envelope; no stack/PII leakage |
+**Graceful degradation.** The API boots without MongoDB: health + jobs work, SOP
+search uses a Redis-backed store, and Mongo-only routes return a clean
+`503 db_unavailable`. Mock LLM mode runs the full flow with no API key.
 
-**Residual (P3, accepted):** session JWT in `localStorage` (XSS tradeoff, mitigated
-by short-lived stream tokens); multer `LIMIT_FILE_SIZE` → generic 500; untrusted
-PDF parsing bounded by 10 MB; redaction is regex best-effort.
+## Folder structure
 
-## 6. Open issues & deferred items
-
-**Open / known:**
-- Atlas `$vectorSearch` is verified by index definition, not executed end-to-end
-  (no Atlas reachable from the build sandbox; CI uses plain `mongo:7` → cosine
-  fallback path). Needs a one-time run against a real Atlas cluster.
-- SOPs uploaded in no-Mongo mock mode (Redis) are not migrated when Mongo later
-  comes up (mode split). Fine for an always-on Atlas deployment.
-- Cosine fallback is O(n) over `Sop.find()` — only for non-Atlas/dev.
-- Token budget is check-before + record-after (eventually consistent), not a hard
-  pre-reservation.
-
-**Deferred (v2, per /autoplan):** log-stream analysis, command recommendations
-(advisory-only), email drafting (folds into the summarizer); SSO; multi-region.
-
-## 7. Production-readiness checklist
-
-- [x] Async job queue + SSE (no LLM in request handlers)
-- [x] Fail-closed PII redaction before every model call
-- [x] Prompt-injection fencing (per-call nonce)
-- [x] Multi-tenant isolation (data + Redis keys + job ownership)
-- [x] JWT auth (HS256 pinned) + short-lived SSE tokens
-- [x] Rate limiting (Redis, per-IP + per-tenant)
-- [x] Uniform error envelope with correct `retryable`
-- [x] Redis-backed token budget meter (shared across processes)
-- [x] CI: typecheck + unit + integration (real Mongo + Redis) + web build
-- [x] `npm audit`: 0 vulnerabilities
-- [x] Graceful degradation without Mongo
-- [x] Index bootstrap + Atlas Vector Search index definition
-- [ ] **Run once against a real Atlas cluster** (provision + `db:indexes` + smoke)
-- [ ] Secrets manager for `JWT_SECRET` / `OPENAI_API_KEY` (not `.env`)
-- [ ] Observability: structured logs, metrics, tracing, alerting
-- [ ] Backups / PITR on Atlas; Redis persistence/HA
-- [ ] Autoscaling for the worker; dead-letter handling for poisoned jobs
-- [ ] Load/cost testing with real embeddings; per-tenant budgets tuned
-- [ ] CORS/CSP hardening; security headers (helmet); request size limits per route
 ```
+ai-ops-copilot/
+├── package.json                      # npm workspaces root (dev/worker/seed/test/typecheck)
+├── docker-compose.yml                # Mongo + Redis for local dev
+├── tsconfig*.json                    # composite TS project references
+├── .github/workflows/ci.yml          # typecheck + tests (real Mongo+Redis) + web build
+├── packages/
+│   └── shared/                       # @ops-copilot/shared — API↔web contract
+│       └── src/index.ts              # ApiError, Job, GroundedResult, Citation, *Summary, RcaDocument
+└── apps/
+    ├── api/                          # @ops-copilot/api
+    │   ├── atlas/sop_vector_index.json   # Atlas Vector Search index definition
+    │   ├── evals/injection.test.ts       # redaction/injection red-team suite
+    │   └── src/
+    │       ├── index.ts              # Express bootstrap, route mounting, limiter
+    │       ├── config.ts             # zod-validated env, secret/placeholder guards
+    │       ├── seed.ts               # demo tenant + dev JWT
+    │       ├── auth/jwt.ts           # requireAuth, signStreamToken, requireStreamToken
+    │       ├── db/
+    │       │   ├── mongo.ts          # lazy connect, warm connect + index bootstrap
+    │       │   └── indexes.ts        # ensureCollectionIndexes / ensureVectorSearchIndex
+    │       ├── features/
+    │       │   ├── redaction.ts      # fail-closed PII/secret scrubber
+    │       │   ├── chunker.ts        # overlapping document chunker
+    │       │   ├── docExtract.ts     # PDF/text extraction (unpdf)
+    │       │   ├── sopStore.ts       # dual-mode SOP store (Atlas / Redis)
+    │       │   ├── vectorMath.ts     # pure cosine + cosineRank
+    │       │   ├── audit.ts          # redaction audit + Redis budget meter
+    │       │   ├── redisStore.ts     # shared lazyConnect Redis client
+    │       │   ├── summary.ts        # ticket-summary save schema
+    │       │   └── rca.ts            # RCA generate/save schemas
+    │       ├── llm/
+    │       │   ├── client.ts         # OpenAI client + deterministic mock
+    │       │   └── orchestrator.ts   # summarizeTicket / answerFromSops / generateRca
+    │       ├── middleware/
+    │       │   ├── error.ts          # uniform envelope + asyncHandler
+    │       │   ├── requireMongo.ts   # lazy Mongo gate (503 when down)
+    │       │   └── rateLimit.ts      # Redis fixed-window limiter
+    │       ├── models/index.ts       # Mongoose schemas (tenant-scoped)
+    │       ├── queue/
+    │       │   ├── queue.ts          # BullMQ queue + events + connection
+    │       │   └── worker.ts         # job processor + failure classification
+    │       ├── routes/               # jobs.ts · tickets.ts · sops.ts · rca.ts
+    │       ├── scripts/createIndexes.ts  # one-shot index creation
+    │       └── integration/realdb.test.ts # real-DB integration tests
+    └── web/                          # @ops-copilot/web (React + Vite)
+        └── src/
+            ├── App.tsx               # tabs: Incident Workspace · SOP Search · RCA
+            ├── api/client.ts         # typed API client + SSE
+            ├── hooks/useJob.ts       # useJobStream — submit + consume SSE
+            ├── components/           # AIBlock · EditableSummary · EditableRca
+            └── pages/                # IncidentWorkspace · SopSearch · RcaPage
+```
+
+## Authentication flow
+
+```mermaid
+sequenceDiagram
+  participant C as Client (SPA)
+  participant API as Express API
+  participant J as JWT (HS256)
+
+  Note over C,API: Normal API calls — header bearer
+  C->>API: POST /api/jobs  (Authorization: Bearer <session JWT>)
+  API->>J: verify(secret, {issuer, algorithms:[HS256]})
+  J-->>API: { tenantId, sub, role }
+  API-->>C: 202 { jobId }
+
+  Note over C,API: SSE — EventSource can't send headers
+  C->>API: GET /api/jobs/:id/stream-token  (Bearer <session JWT>)
+  API->>API: loadOwnedJob (tenant check)
+  API->>J: signStreamToken({tenantId, jobId, purpose:sse}, exp 60s)
+  API-->>C: { streamToken, expiresIn: 60 }
+  C->>API: EventSource /api/jobs/:id/stream?t=<streamToken>
+  API->>J: verify + check purpose=sse AND jobId == :id
+  J-->>API: ok → req.auth
+  API-->>C: SSE: status → token* → done
+```
+
+The session JWT (12 h) is **never** put in a URL. The SSE route takes a separate
+60 s, single-purpose token bound to one job id — a leaked stream URL expires in a
+minute and unlocks only that job's stream.
+
+## Feature flows
+
+### Ticket Summarization
+
+```mermaid
+flowchart LR
+  T["Select ticket"] --> S["POST /tickets/:id/summarize"]
+  S --> Q["enqueue ticket_summary"]
+  Q --> W["worker: redact → fence → gpt-4o-mini (JSON) → validate"]
+  W --> R["GroundedResult<TicketSummary><br/>citation + confidence + redacted"]
+  R --> SSE["SSE done"]
+  SSE --> E["AIBlock → human edit"]
+  E --> SV["PUT /tickets/:id/summary (upsert)"]
+```
+
+### SOP Search (RAG)
+
+```mermaid
+flowchart LR
+  U["POST /sops/upload<br/>PDF/.md/.txt"] --> X["extract text (unpdf)"]
+  X --> CH["chunk (overlap)"]
+  CH --> EM["embed each chunk"]
+  EM --> ST[("store: Atlas Vector Search<br/>or Redis mock")]
+  QY["POST /sops/search {query}"] --> JOB["enqueue sop_search"]
+  JOB --> RET["redact query → embed → $vectorSearch / cosine"]
+  RET --> ANS["LLM answers ONLY from retrieved chunks (prose, streamed)"]
+  ANS --> CIT["GroundedResult + SOP citations + confidence"]
+```
+
+### RCA Generation
+
+```mermaid
+flowchart LR
+  IN["POST /rca/generate<br/>{incidentSummary, logSnippet}"] --> JOB["enqueue rca"]
+  JOB --> RD["redact incident + log"]
+  RD --> SOP["retrieve SOP chunks"]
+  SOP --> FN["fence incident + log + SOPs as UNTRUSTED"]
+  FN --> LLM["gpt-4o (JSON) → validate vs rcaSchema"]
+  LLM --> RES["RcaDocument + log & SOP citations + confidence"]
+  RES --> ED["AIBlock → human edit"]
+  ED --> SV["POST /rca (upsert by incidentId)"]
+```
+
+Detailed **sequence diagrams** for all three are in
+[QUEUE_AND_WORKER_FLOW.md](QUEUE_AND_WORKER_FLOW.md).
+
+## Key design decisions
+
+- **Async-first** — every generative endpoint returns `202 + jobId`; results
+  stream over SSE. No LLM work in request handlers.
+- **Grounding is the product** — every answer carries citations + a confidence
+  score; the orchestrator validates LLM JSON against zod schemas, so a malformed
+  response becomes a clean error instead of a broken object.
+- **Fail-closed redaction** — PII/secrets are scrubbed before *every* OpenAI call
+  (chat and embeddings); redaction failure aborts the call.
+- **Defense in depth for injection** — untrusted content is fenced with a
+  per-call random nonce and never reaches a command executor.
+- **Multi-tenant from day one** — `tenantId` on every document, every query, and
+  every Redis key; job ownership is checked before streaming.
+- **Dual-mode storage** — Atlas Vector Search when Mongo is up; a Redis store
+  shared across API + worker when it's down (mock mode), so the whole flow is
+  demoable with no database.

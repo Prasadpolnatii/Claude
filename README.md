@@ -1,127 +1,100 @@
 # AI Operations Copilot
 
-Grounded, async AI copilot for on-call engineers. Generated from a `/autoplan` review
-and scaffolded to make every architectural decision concrete.
+A grounded, async AI copilot for on-call engineers. It turns incident tickets,
+logs, and runbooks into **cited, confidence-scored** summaries, runbook answers,
+and root-cause analyses — with a human-in-the-loop edit-before-save workflow.
 
-**v1 scope (the grounded core-3):**
-- **Ticket summarization** — fast summaries with `gpt-4o-mini`.
-- **SOP search** — RAG over your runbooks (MongoDB Atlas Vector Search); answers cite §source.
-- **RCA generation** — root cause analysis grounded in retrieved SOPs + attached log snippets, with `gpt-4o`.
+> Production-grade reference implementation: async job queue, SSE streaming,
+> fail-closed PII redaction, prompt-injection defense, multi-tenant isolation,
+> Redis-backed rate limiting + budget metering, signed SSE tokens, MongoDB Atlas
+> Vector Search RAG, CI with real-DB integration tests, and `npm audit`: 0 vulns.
 
-Deferred to v2: log-stream analysis, command recommendations. Email drafting folds into the summarizer.
+## Core-3 features
 
----
+| Feature | What it does |
+|---------|-------------|
+| **Ticket Summarization** | Summarizes a support/incident ticket (headline, impact, next actions), cited to the source. |
+| **SOP Search (RAG)** | Upload runbooks (PDF/.md/.txt) → chunk → embed → MongoDB Atlas Vector Search → grounded answer with citations. |
+| **RCA Generation** | Incident summary + log snippet → retrieves SOPs → produces a cited root-cause document. |
 
-## Why it's shaped this way (decisions baked into the code)
+Every AI output streams over SSE, shows **citations + a confidence score**, is
+labelled "verify before acting," and can be **edited by a human before it's saved**.
 
-| Decision | Where it lives |
-|----------|----------------|
-| **Async job queue** — generative calls take 10–60s, never run in a request handler | `apps/api/src/queue/*`, routes return `202 + jobId` |
-| **Fail-closed redaction proxy** — PII/secrets scrubbed before *every* OpenAI call | `apps/api/src/llm/redaction.ts` |
-| **Prompt-injection defense** — untrusted content fenced as `<UNTRUSTED>` data, never instructions; output never executes | `apps/api/src/llm/orchestrator.ts` |
-| **Grounding + confidence** — every answer carries citations + a confidence score; low-confidence is flagged | `orchestrator.ts`, `AIBlock.tsx` |
-| **Trust UX** — "verify before acting", citations, confidence, human edit on every AI block | `apps/web/src/components/AIBlock.tsx` |
-| **Multi-tenant from day 1** — `tenantId` on every doc + JWT scoping | `apps/api/src/models`, `auth/jwt.ts` |
-| **Vector store = MongoDB** (no extra infra) | `apps/api/src/features/sopStore.ts` |
-| **Streaming** — SSE token stream, ARIA live region | `routes/jobs.ts`, `hooks/useJob.ts` |
-| **Mock-LLM mode** — full flow, no API key, no spend | `apps/api/src/llm/client.ts` |
-| **Idempotency** — `Idempotency-Key` so a double-click doesn't double-bill | `routes/jobs.ts` |
+## Stack
 
-## Architecture
-
-```
-React SPA ──HTTPS──► Express API ──► BullMQ/Redis queue ──► Worker
-   │  SSE stream ◄────┘                                      │
-   ▼                                              LangChain orchestration
-MongoDB ◄── app data + Vector Search (SOP embeddings) ◄──────┤
-                                                             ▼
-                                         OpenAI (chat + embeddings)
-                                         ↑ redaction proxy (fail-closed)
-```
-
-The **API process serves HTTP only**; generative work runs in a **separate worker**.
-Both share Redis + Mongo. Run both.
-
-### Degrades gracefully without MongoDB
-
-The API boots even when Mongo is down. Health + job endpoints (Redis-only) work
-immediately; Mongo is **lazy-connected** on first use by the ticket/SOP routes,
-which return a clean `503 db_unavailable` if it's unreachable. This keeps
-mock-mode demos fully working with just Redis — no database required.
-
-| Endpoint | Needs Mongo? |
-|----------|--------------|
-| `GET /api/health` · `POST /api/jobs` · SSE stream · `ticket_summary` jobs | No |
-| `GET/POST /api/tickets` · `/api/sops` · `sop_search` + `rca` jobs | Yes (503 if down) |
+React (Vite) · Express · BullMQ + Redis · MongoDB / Atlas Vector Search · OpenAI ·
+TypeScript (ESM) · npm workspaces monorepo.
 
 ## Quick start (≈ 15 min, no OpenAI key needed)
 
 ```bash
-# 1. infra
 docker compose up -d            # Mongo + Redis
-
-# 2. deps + env
 npm install
 cp .env.example .env            # LLM_MODE=mock by default → no key, no spend
-
-# 3. seed a demo tenant (prints a dev JWT)
-npm run seed
-
-# 4. run API + web (terminal 1) and the worker (terminal 2)
-npm run dev
-npm run worker
-
-# 5. open http://localhost:5173, paste the JWT from step 3
+npm run seed                    # seeds a demo tenant, prints a dev JWT
+npm run dev                     # API (4000) + web (5173)
+npm run worker                  # second terminal
+# open http://localhost:5173, paste the JWT
 ```
 
 Flip to live OpenAI: set `LLM_MODE=openai` + `OPENAI_API_KEY` in `.env`.
+Mock mode runs the **entire** flow (including SOP RAG via a Redis store) with no
+database and no API key.
 
-> **Local vector search:** plain Mongo (via docker-compose) has no `$vectorSearch`,
-> so `sopStore.ts` falls back to in-memory cosine similarity automatically. For
-> production, use MongoDB Atlas and create a Vector Search index named
-> `sop_vector_index` on `sops.embedding`.
+## Documentation
 
-## MongoDB Atlas (production)
+| Doc | Contents |
+|-----|----------|
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System architecture, folder structure, feature + auth diagrams |
+| [docs/API_REFERENCE.md](docs/API_REFERENCE.md) | All 17 endpoints, auth, payloads, error envelope |
+| [docs/DATABASE_SCHEMA.md](docs/DATABASE_SCHEMA.md) | Collections, indexes, Atlas Vector Search, Redis keys |
+| [docs/QUEUE_AND_WORKER_FLOW.md](docs/QUEUE_AND_WORKER_FLOW.md) | Queue/worker + SSE + sequence diagrams |
+| [docs/SECURITY.md](docs/SECURITY.md) | Security posture report (auth, redaction, injection, limits) |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Local, Docker Compose, Atlas, Redis, GitHub Actions |
+| [docs/ENVIRONMENT_VARIABLES.md](docs/ENVIRONMENT_VARIABLES.md) | Every env var, defaults, and effect |
+| [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Common failures and fixes |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | Near-term hardening roadmap |
+| [docs/FUTURE_ROADMAP.md](docs/FUTURE_ROADMAP.md) | v2 agents (log analysis, ChatOps, auto-remediation) |
+| [docs/INTERVIEW_GUIDE.md](docs/INTERVIEW_GUIDE.md) | Architecture deep-dive + STAR interview answers |
+| [docs/RESUME_PROJECT_DESCRIPTION.md](docs/RESUME_PROJECT_DESCRIPTION.md) | Resume bullets (1-line → detailed) |
 
-1. **Connect:** set `MONGODB_URI` to your Atlas SRV string, e.g.
-   `mongodb+srv://USER:PASS@cluster0.xxxxx.mongodb.net/ops_copilot?retryWrites=true&w=majority`.
-   `MONGO_SERVER_SELECTION_TIMEOUT_MS` defaults to 5000 (Atlas needs more than a
-   local socket).
-2. **Indexes:** `npm run -w @ops-copilot/api db:indexes` builds the collection
-   indexes everywhere and creates the **Atlas Vector Search** index when pointed
-   at Atlas. The index also auto-creates on first boot (best-effort). The
-   definition lives at [`apps/api/atlas/sop_vector_index.json`](apps/api/atlas/sop_vector_index.json)
-   (`embedding`: 1536-dim cosine; `tenantId` as a filter field). `EMBEDDING_DIMENSIONS`
-   must match your embedding model and the index.
-3. **Verify:** the integration tests (`src/integration/realdb.test.ts`) exercise
-   ticket/RCA persistence and SOP store→retrieval against a real database. They run
-   in CI against a `mongo:7` service and skip when no `MONGODB_URI` is reachable.
+## Repository layout
 
-> On plain MongoDB (non-Atlas), `$vectorSearch` is unavailable and the code falls
-> back to cosine over `Sop.find()` — correct, but O(n); Atlas Vector Search is
-> required for scale.
+```
+packages/shared   API↔web contract (types, error envelope, job/grounding types)
+apps/api          Express API + BullMQ worker + LangChain-style orchestration
+  src/auth        JWT + signed SSE tokens
+  src/db          Mongo connector + index bootstrap
+  src/features    redaction, chunker, sopStore, vectorMath, audit/budget, summary, rca
+  src/llm         OpenAI client (+mock), orchestrator (redact→retrieve→fence→LLM)
+  src/middleware  error envelope, requireMongo, rateLimit
+  src/models      Mongoose schemas
+  src/queue       BullMQ queue + worker
+  src/routes      jobs, tickets, sops, rca
+  src/integration real-DB integration tests
+  atlas           Atlas Vector Search index definition
+apps/web          React SPA — AIBlock trust UX, SSE streaming, 3 feature pages
+.github/workflows CI: typecheck + tests (real Mongo + Redis) + web build
+```
 
-## Tests
+## Tests & CI
 
 ```bash
-npm test     # redaction + prompt-injection red-team suite (apps/api/evals)
+npm run typecheck    # tsc -b across all workspaces
+npm test             # api unit + integration (integration needs MONGODB_URI)
 ```
 
-## Layout
-
-```
-packages/shared      # API/web contract: error envelope, job + grounding types
-apps/api             # Express API + BullMQ worker + LangChain orchestration
-  src/llm            #   redaction proxy, LLM client (+mock), orchestrator
-  src/queue          #   queue + worker
-  src/routes         #   jobs (submit/status/SSE), tickets, sops
-  evals              #   injection.test.ts
-apps/web             # React SPA — AIBlock trust UX, SSE streaming, workspace
-```
+CI (GitHub Actions) runs typecheck, the full test suite against **real `mongo:7`
++ `redis:7` services**, and the web build on every push/PR. `npm audit`: **0
+vulnerabilities**.
 
 ## Status
 
-This is a **scaffold**: structure + the load-bearing decisions are real and wired;
-business logic is intentionally thin where noted. Not production-ready — see the
-`/autoplan` failure-modes registry for what hardening remains (budget meter →
-Redis, signed SSE URLs, eval coverage for grounding accuracy).
+**Feature-complete and frozen.** Core-3 built, reviewed (no open P1/P2), hardened
+(rate limiting, signed SSE, budget meter, secret guard), CI-gated, and verified
+against a real database. See [docs/ROADMAP.md](docs/ROADMAP.md) for the remaining
+production-hardening checklist.
+
+## License
+
+MIT (reference/portfolio project).
