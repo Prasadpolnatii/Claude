@@ -43,7 +43,7 @@ const worker = new Worker<JobPayload>(
 async function process(job: Job<JobPayload>): Promise<JobResultMap[JobType]> {
     const { tenantId, type, input } = job.data;
 
-    if (isOverBudget(tenantId)) {
+    if (await isOverBudget(tenantId)) {
       throw toApiError("budget_exceeded", "Daily token budget exhausted for this tenant.", false);
     }
 

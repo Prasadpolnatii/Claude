@@ -12,17 +12,17 @@ process.env.JWT_SECRET = "test-secret-at-least-16-chars-long";
 
 const { generateRca } = await import("./orchestrator.ts");
 const { addSopChunks } = await import("../features/sopStore.ts");
-const { mockStore } = await import("../features/redisStore.ts");
+const { redis } = await import("../features/redisStore.ts");
 
 let redisOk = false;
 try {
-  await mockStore.connect();
+  await redis.connect();
   redisOk = true;
 } catch {
   redisOk = false;
 }
 after(async () => {
-  if (redisOk) await mockStore.quit().catch(() => {});
+  if (redisOk) await redis.quit().catch(() => {});
 });
 
 const TENANT = `rca-test-${Date.now()}`;

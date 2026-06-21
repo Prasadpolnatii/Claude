@@ -7,7 +7,7 @@
     "dev": "tsx watch src/index.ts",
     "worker": "tsx watch src/queue/worker.ts",
     "seed": "tsx src/seed.ts",
-    "test": "node --import tsx --test 'evals/**/*.test.ts' 'src/**/*.test.ts'",
+    "test": "node --import tsx --test --test-force-exit 'evals/**/*.test.ts' 'src/**/*.test.ts'",
     "typecheck": "tsc -b"
   },
   "dependencies": {

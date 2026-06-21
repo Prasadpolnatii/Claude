@@ -3,7 +3,7 @@ import { Sop } from "../models/index.js";
 import { embed } from "../llm/client.js";
 import { redact } from "../llm/redaction.js";
 import { isMongoConnected } from "../db/mongo.js";
-import { mockStore } from "./redisStore.js";
+import { redis } from "./redisStore.js";
 import type { Chunk } from "./chunker.js";
 import { clamp01, cosineRank } from "./vectorMath.js";
 
@@ -58,8 +58,8 @@ export async function addSopChunks(
     const items = embedded.map(
       (c, i): StoredChunk => ({ id: `mem-${Date.now()}-${i}`, title: c.title, text: c.text, embedding: c.embedding }),
     );
-    await mockStore.rpush(memKey(tenantId), ...items.map((i) => JSON.stringify(i)));
-    await mockStore.expire(memKey(tenantId), MEM_TTL_SECONDS);
+    await redis.rpush(memKey(tenantId), ...items.map((i) => JSON.stringify(i)));
+    await redis.expire(memKey(tenantId), MEM_TTL_SECONDS);
   }
   return embedded.length;
 }
@@ -102,7 +102,7 @@ export async function searchSops(tenantId: string, query: string, k = 5): Promis
   }
 
   // Mock mode: Redis-backed store.
-  const raw = await mockStore.lrange(memKey(tenantId), 0, -1);
+  const raw = await redis.lrange(memKey(tenantId), 0, -1);
   const stored: StoredChunk[] = raw.map((r) => JSON.parse(r));
   return cosineRank(stored, queryVec, k);
 }

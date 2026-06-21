@@ -217,7 +217,7 @@ async function callText(
       // render the structured result on completion.
       onToken: json ? undefined : ctx.onToken,
     });
-    recordTokens(ctx.tenantId, res.promptTokens + res.completionTokens);
+    await recordTokens(ctx.tenantId, res.promptTokens + res.completionTokens);
     return res;
   } catch (err) {
     throw new LlmError(err);
