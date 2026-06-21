@@ -1,0 +1,85 @@
+import type { ApiErrorBody, Job, JobStreamEvent, JobType } from "@ops-copilot/shared";
+
+/**
+ * Tiny API client. Holds the dev JWT in memory (paste from `npm run seed`).
+ * The async contract is enforced here: submit → jobId → stream.
+ */
+
+let token = localStorage.getItem("ops_token") ?? "";
+
+export function setToken(t: string): void {
+  token = t.trim();
+  localStorage.setItem("ops_token", token);
+}
+export function getToken(): string {
+  return token;
+}
+
+function authHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  return { "content-type": "application/json", authorization: `Bearer ${token}`, ...extra };
+}
+
+export class ApiCallError extends Error {
+  constructor(public readonly code: string, message: string, public readonly retryable: boolean) {
+    super(message);
+  }
+}
+
+async function unwrap<T>(res: Response): Promise<T> {
+  if (res.ok) return res.json() as Promise<T>;
+  const body = (await res.json().catch(() => null)) as ApiErrorBody | null;
+  const e = body?.error;
+  throw new ApiCallError(e?.code ?? "internal", e?.message ?? res.statusText, e?.retryable ?? false);
+}
+
+export async function submitJob(
+  type: JobType,
+  input: Record<string, unknown>,
+  idempotencyKey?: string,
+): Promise<{ jobId: string }> {
+  const headers = authHeaders(idempotencyKey ? { "idempotency-key": idempotencyKey } : {});
+  const res = await fetch("/api/jobs", { method: "POST", headers, body: JSON.stringify({ type, input }) });
+  return unwrap(res);
+}
+
+/**
+ * Stream a job's tokens + final result over SSE. Returns an unsubscribe fn.
+ * `EventSource` can't send Authorization headers, so the token rides as a query
+ * param in dev. In production, prefer a short-lived signed stream URL.
+ */
+export function streamJob(
+  jobId: string,
+  handlers: {
+    onToken?: (t: string) => void;
+    onDone?: (job: Job) => void;
+    onError?: (code: string, message: string) => void;
+  },
+): () => void {
+  const es = new EventSource(`/api/jobs/${jobId}/stream?access_token=${encodeURIComponent(token)}`);
+  es.onmessage = (ev) => {
+    const event = JSON.parse(ev.data) as JobStreamEvent;
+    if (event.type === "token") handlers.onToken?.(event.text);
+    else if (event.type === "done") {
+      handlers.onDone?.(event.job);
+      es.close();
+    } else if (event.type === "error") {
+      handlers.onError?.(event.error.code, event.error.message);
+      es.close();
+    }
+  };
+  es.onerror = () => {
+    handlers.onError?.("stream_error", "Connection to the job stream dropped.");
+    es.close();
+  };
+  return () => es.close();
+}
+
+export async function searchSops(q: string): Promise<{ hits: Array<{ id: string; title: string; text: string; score: number }> }> {
+  const res = await fetch(`/api/sops/search?q=${encodeURIComponent(q)}`, { headers: authHeaders() });
+  return unwrap(res);
+}
+
+export async function listTickets(): Promise<{ tickets: Array<{ _id: string; title: string; body: string }> }> {
+  const res = await fetch("/api/tickets", { headers: authHeaders() });
+  return unwrap(res);
+}

@@ -1,0 +1,23 @@
+# Local dev infra: MongoDB + Redis. The app itself runs on the host via `npm run dev`.
+# For SOP vector search locally you can run a standard Mongo; in production use
+# MongoDB Atlas with a Vector Search index on the `sops.embedding` field.
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+volumes:
+  mongo_data:
+  redis_data:
