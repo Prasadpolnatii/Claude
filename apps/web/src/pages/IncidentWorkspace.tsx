@@ -1,95 +1,130 @@
-import { useState } from "react";
-import type { RcaDocument, TicketSummary } from "@ops-copilot/shared";
-import { useJob } from "../hooks/useJob.js";
+import { useEffect, useState } from "react";
+import type { TicketSummary } from "@ops-copilot/shared";
+import {
+  getTicketSummary,
+  listTickets,
+  summarizeTicket,
+  type SavedSummary,
+  type TicketRow,
+} from "../api/client.js";
+import { useJobStream } from "../hooks/useJob.js";
 import { AIBlock } from "../components/AIBlock.js";
+import { EditableSummary } from "../components/EditableSummary.js";
 
 /**
- * The hub. One incident, with the core-3 outputs side by side. Each generative
- * action goes through the async job + SSE path and renders in an AIBlock so the
- * trust guarantees (citations, confidence, verify-before-acting) always show.
+ * Incident Workspace — Ticket Summarization end to end:
+ *   inbox → select a ticket → Summarize → SSE stream → grounded AIBlock →
+ *   human edit → save. Re-selecting a ticket loads any previously saved summary.
  */
 export function IncidentWorkspace() {
-  const [ticketText, setTicketText] = useState(
-    "Customers report checkout taking 8+ seconds since ~14:05, right after the 2.4.1 deploy.",
-  );
-  const [logSnippet, setLogSnippet] = useState(
-    "14:09 ERROR pool: connection pool timeout (size=20, waiting=312)\n14:10 WARN retry storm detected",
-  );
+  const [tickets, setTickets] = useState<TicketRow[]>([]);
+  const [loadErr, setLoadErr] = useState<{ code: string; message: string }>();
+  const [selected, setSelected] = useState<TicketRow>();
+  const [savedSummary, setSavedSummary] = useState<SavedSummary | null>(null);
+  const [jobId, setJobId] = useState<string>();
 
-  const summary = useJob<TicketSummary>("ticket_summary");
-  const rca = useJob<RcaDocument>("rca");
+  const job = useJobStream<TicketSummary>();
+
+  useEffect(() => {
+    listTickets()
+      .then((r) => setTickets(r.tickets))
+      .catch((e) => setLoadErr({ code: e.code ?? "error", message: e.message ?? String(e) }));
+  }, []);
+
+  async function select(t: TicketRow) {
+    setSelected(t);
+    job.reset();
+    setJobId(undefined);
+    setSavedSummary(null);
+    try {
+      const r = await getTicketSummary(t._id);
+      setSavedSummary(r.summary);
+    } catch {
+      /* no saved summary / DB down — fine */
+    }
+  }
+
+  async function runSummarize() {
+    if (!selected) return;
+    setSavedSummary(null);
+    await job.run(async () => {
+      const r = await summarizeTicket(selected._id);
+      setJobId(r.jobId);
+      return r;
+    });
+  }
+
+  if (loadErr) {
+    return (
+      <div className="error-note" role="alert">
+        Couldn’t load tickets ({loadErr.code}): {loadErr.message}
+        {loadErr.code === "db_unavailable" && " — ticket features need MongoDB."}
+      </div>
+    );
+  }
 
   return (
     <div className="workspace">
-      <div className="workspace__inputs">
-        <label>
-          Ticket
-          <textarea value={ticketText} onChange={(e) => setTicketText(e.target.value)} rows={4} />
-        </label>
-        <label>
-          Log snippet (attached evidence for RCA)
-          <textarea value={logSnippet} onChange={(e) => setLogSnippet(e.target.value)} rows={4} />
-        </label>
-        <div className="workspace__actions">
-          <button onClick={() => summary.run({ ticketText })} disabled={summary.streaming}>
-            Summarize ticket
-          </button>
-          <button onClick={() => rca.run({ incidentSummary: ticketText, logSnippet })} disabled={rca.streaming}>
-            Generate RCA
-          </button>
-        </div>
-      </div>
+      <aside className="inbox">
+        <h3>Tickets</h3>
+        {tickets.length === 0 && <p className="muted">No tickets. Seed some with <code>npm run seed</code>.</p>}
+        <ul>
+          {tickets.map((t) => (
+            <li key={t._id}>
+              <button className={selected?._id === t._id ? "active" : ""} onClick={() => select(t)}>
+                {t.title}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </aside>
 
-      <div className="workspace__outputs">
-        {(summary.streaming || summary.result || summary.error) && (
-          <AIBlock<TicketSummary>
-            title="Ticket summary"
-            streaming={summary.streaming}
-            streamText={summary.streamText}
-            result={summary.result}
-            onEdit={() => alert("Opens an editable draft (stub).")}
-          >
-            {(d) => (
-              <>
-                <strong>{d.headline}</strong>
-                <p>{d.summary}</p>
-                <p className="muted">Impact: {d.impact}</p>
-                <ul>{d.nextActions.map((a, i) => <li key={i}>{a}</li>)}</ul>
-              </>
+      <section className="workspace__outputs">
+        {!selected && <p className="muted">Select a ticket to summarize.</p>}
+
+        {selected && (
+          <>
+            <div className="ticket-body">
+              <h3>{selected.title}</h3>
+              <p>{selected.body}</p>
+              <button onClick={runSummarize} disabled={job.streaming}>
+                {job.streaming ? "Summarizing…" : "Summarize"}
+              </button>
+            </div>
+
+            {job.streaming && (
+              <AIBlock<TicketSummary> title="Ticket summary" streaming streamText={job.streamText} />
             )}
-          </AIBlock>
-        )}
-        {summary.error && <ErrorNote {...summary.error} onRetry={() => summary.run({ ticketText })} />}
 
-        {(rca.streaming || rca.result || rca.error) && (
-          <AIBlock<RcaDocument>
-            title="Root cause analysis"
-            streaming={rca.streaming}
-            streamText={rca.streamText}
-            result={rca.result}
-            onEdit={() => alert("Opens an editable RCA draft (stub).")}
-          >
-            {(d) => (
-              <>
-                <strong>{d.title}</strong>
-                <p><b>Root cause:</b> {d.rootCause}</p>
-                <p className="muted">Contributing: {d.contributingFactors.join(", ")}</p>
-                <ol>{d.remediation.map((r, i) => <li key={i}>{r}</li>)}</ol>
-              </>
+            {!job.streaming && job.result && (
+              <EditableSummary
+                ticketId={selected._id}
+                jobId={jobId}
+                result={job.result}
+                initiallySaved={savedSummary}
+                onSaved={setSavedSummary}
+              />
             )}
-          </AIBlock>
-        )}
-        {rca.error && <ErrorNote {...rca.error} onRetry={() => rca.run({ incidentSummary: ticketText, logSnippet })} />}
-      </div>
-    </div>
-  );
-}
 
-function ErrorNote({ code, message, retryable, onRetry }: { code: string; message: string; retryable: boolean; onRetry: () => void }) {
-  return (
-    <div className="error-note" role="alert">
-      <strong>{code}</strong> — {message}
-      {retryable && <button className="link" onClick={onRetry}>Retry</button>}
+            {job.error && (
+              <div className="error-note" role="alert">
+                <strong>{job.error.code}</strong> — {job.error.message}
+                {job.error.retryable && <button className="link" onClick={runSummarize}>Retry</button>}
+              </div>
+            )}
+
+            {!job.result && !job.streaming && savedSummary && (
+              <div className="saved-summary">
+                <h4>Saved summary {savedSummary.editedByHuman ? "(human-edited)" : ""}</h4>
+                <strong>{savedSummary.headline}</strong>
+                <p>{savedSummary.summary}</p>
+                <p className="muted">Impact: {savedSummary.impact}</p>
+                <ul>{savedSummary.nextActions.map((a, i) => <li key={i}>{a}</li>)}</ul>
+              </div>
+            )}
+          </>
+        )}
+      </section>
     </div>
   );
 }

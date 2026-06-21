@@ -65,6 +65,22 @@ label textarea { margin-top: 6px; }
 .sop__hits li { border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-bottom: 10px; }
 .sop__hit-head { display: flex; justify-content: space-between; }
 
+.inbox { border-right: 1px solid var(--line); padding-right: 16px; }
+.inbox h3 { margin-top: 0; font-size: 14px; color: var(--muted); }
+.inbox ul { list-style: none; padding: 0; margin: 0; }
+.inbox li { margin-bottom: 6px; }
+.inbox li button {
+  width: 100%; text-align: left; background: var(--panel); color: var(--text);
+  border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px;
+}
+.inbox li button.active { border-color: var(--accent); }
+.ticket-body { border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin-bottom: 16px; background: var(--panel); }
+.ticket-body h3 { margin-top: 0; }
+.ticket-body button { background: var(--accent); color: white; border: none; padding: 8px 14px; border-radius: 8px; }
+.ticket-body button:disabled { opacity: 0.5; }
+.saved-summary { border: 1px dashed var(--line); border-radius: 12px; padding: 14px; margin-top: 12px; }
+.saved-summary h4 { margin: 0 0 8px; color: var(--ok); font-size: 13px; }
+
 .gate { max-width: 520px; margin: 80px auto; padding: 24px; }
 .gate textarea { margin: 12px 0; }
 .gate button { background: var(--accent); color: white; border: none; padding: 10px 18px; border-radius: 8px; }

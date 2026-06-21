@@ -71,6 +71,27 @@ const rcaSchema = new Schema(
   { timestamps: true },
 );
 
+// ── Ticket summaries (persisted, human-editable) ─────────────────────────────
+// One current summary per ticket (upserted). `editedByHuman` records whether a
+// human revised the AI draft before saving — the trust audit trail.
+const summarySchema = new Schema(
+  {
+    ...tenantScoped,
+    ticketId: { type: Schema.Types.ObjectId, ref: "Ticket", required: true },
+    jobId: String,
+    headline: { type: String, required: true },
+    summary: { type: String, required: true },
+    impact: String,
+    nextActions: { type: [String], default: [] },
+    confidence: Number,
+    citations: { type: [Schema.Types.Mixed], default: [] },
+    model: String,
+    editedByHuman: { type: Boolean, default: false },
+  },
+  { timestamps: true },
+);
+summarySchema.index({ tenantId: 1, ticketId: 1 }, { unique: true });
+
 // ── Redaction audit log — proves PII never left unredacted ────────────────────
 const redactionAuditSchema = new Schema(
   {
@@ -87,6 +108,7 @@ export const Ticket = mongoose.model("Ticket", ticketSchema);
 export const Incident = mongoose.model("Incident", incidentSchema);
 export const Sop = mongoose.model("Sop", sopSchema);
 export const Rca = mongoose.model("Rca", rcaSchema);
+export const Summary = mongoose.model("Summary", summarySchema);
 export const RedactionAudit = mongoose.model("RedactionAudit", redactionAuditSchema);
 
 export type SopDoc = InferSchemaType<typeof sopSchema> & { _id: mongoose.Types.ObjectId };

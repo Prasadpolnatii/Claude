@@ -2,8 +2,9 @@ import { Router, type Request, type Response } from "express";
 import mongoose from "mongoose";
 import { z } from "zod";
 import type { JobType } from "@ops-copilot/shared";
-import { Ticket } from "../models/index.js";
+import { Summary, Ticket } from "../models/index.js";
 import { generativeQueue } from "../queue/queue.js";
+import { ticketSummaryInputSchema } from "../features/summary.js";
 import { asyncHandler, badRequest } from "../middleware/error.js";
 
 export const ticketsRouter = Router();
@@ -57,4 +58,43 @@ ticketsRouter.post("/:id/summarize", asyncHandler(async (req: Request, res: Resp
   );
 
   res.status(202).json({ jobId: job.id, ticketId: String(id) });
+}));
+
+/** GET /api/tickets/:id/summary — fetch the saved (possibly human-edited) summary. */
+ticketsRouter.get("/:id/summary", asyncHandler(async (req: Request, res: Response) => {
+  const { id } = req.params;
+  if (!mongoose.isValidObjectId(id)) throw badRequest("invalid ticket id");
+  const summary = await Summary.findOne({ tenantId: req.auth!.tenantId, ticketId: id }).lean();
+  res.json({ summary: summary ?? null });
+}));
+
+/**
+ * PUT /api/tickets/:id/summary — persist the summary after the human reviewed
+ * (and possibly edited) the AI draft. Upserts one current summary per ticket.
+ * `editedByHuman` records whether it was revised — the human-in-the-loop audit.
+ */
+ticketsRouter.put("/:id/summary", asyncHandler(async (req: Request, res: Response) => {
+  const { id } = req.params;
+  if (!mongoose.isValidObjectId(id)) throw badRequest("invalid ticket id");
+
+  const parsed = ticketSummaryInputSchema.safeParse(req.body);
+  if (!parsed.success) throw badRequest(parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "));
+
+  const tenantId = req.auth!.tenantId;
+  // Tenant-scoped existence check so we never create a summary for another
+  // tenant's (or a nonexistent) ticket.
+  const ticket = await Ticket.findOne({ _id: id, tenantId }).select("_id").lean();
+  if (!ticket) {
+    res.status(404).json({ error: { code: "not_found", message: "Ticket not found.", retryable: false } });
+    return;
+  }
+
+  const { headline, summary, impact, nextActions, editedByHuman, jobId } = parsed.data;
+  const saved = await Summary.findOneAndUpdate(
+    { tenantId, ticketId: id },
+    { $set: { headline, summary, impact, nextActions, editedByHuman, jobId } },
+    { new: true, upsert: true, setDefaultsOnInsert: true },
+  ).lean();
+
+  res.status(200).json({ summary: saved });
 }));

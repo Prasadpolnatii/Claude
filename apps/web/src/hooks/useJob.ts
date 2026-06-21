@@ -2,48 +2,60 @@ import { useCallback, useRef, useState } from "react";
 import type { GroundedResult, JobType } from "@ops-copilot/shared";
 import { ApiCallError, streamJob, submitJob } from "../api/client.js";
 
+interface JobState<T> {
+  streaming: boolean;
+  streamText: string;
+  result?: GroundedResult<T>;
+  error?: { code: string; message: string; retryable: boolean };
+}
+
 /**
- * useJob — submit a generative job and consume its SSE stream.
- * Encapsulates the async contract so pages just call `run(input)` and read
- * `{ streaming, streamText, result, error }`.
+ * useJobStream — submit a generative job via ANY submitter and consume its SSE
+ * stream. The submitter returns `{ jobId }`; this hook handles streaming, the
+ * grounded result, and errors. Pages provide the submitter so the same hook
+ * works for /api/jobs and for POST /api/tickets/:id/summarize.
  */
-export function useJob<T>(type: JobType) {
-  const [streaming, setStreaming] = useState(false);
-  const [streamText, setStreamText] = useState("");
-  const [result, setResult] = useState<GroundedResult<T>>();
-  const [error, setError] = useState<{ code: string; message: string; retryable: boolean }>();
+export function useJobStream<T>() {
+  const [state, setState] = useState<JobState<T>>({ streaming: false, streamText: "" });
   const unsub = useRef<() => void>();
 
-  const run = useCallback(
-    async (input: Record<string, unknown>) => {
-      setError(undefined);
-      setResult(undefined);
-      setStreamText("");
-      setStreaming(true);
-      try {
-        // Idempotency key prevents a double-submit from burning two LLM calls.
-        const idem = crypto.randomUUID();
-        const { jobId } = await submitJob(type, input, idem);
-        unsub.current = streamJob(jobId, {
-          onToken: (t) => setStreamText((prev) => prev + t),
-          onDone: (job) => {
-            setStreaming(false);
-            if (job.status === "succeeded") setResult(job.result as GroundedResult<T>);
-            else setError(job.error ?? { code: "internal", message: "Job failed.", retryable: true });
-          },
-          onError: (code, message) => {
-            setStreaming(false);
-            setError({ code, message, retryable: code === "llm_unavailable" });
-          },
-        });
-      } catch (e) {
-        setStreaming(false);
-        if (e instanceof ApiCallError) setError({ code: e.code, message: e.message, retryable: e.retryable });
-        else setError({ code: "internal", message: String(e), retryable: true });
-      }
-    },
-    [type],
-  );
+  const run = useCallback(async (submit: () => Promise<{ jobId: string }>) => {
+    unsub.current?.();
+    setState({ streaming: true, streamText: "", result: undefined, error: undefined });
+    try {
+      const { jobId } = await submit();
+      unsub.current = streamJob(jobId, {
+        onToken: (t) => setState((s) => ({ ...s, streamText: s.streamText + t })),
+        onDone: (job) => {
+          if (job.status === "succeeded") {
+            setState((s) => ({ ...s, streaming: false, result: job.result as GroundedResult<T> }));
+          } else {
+            setState((s) => ({ ...s, streaming: false, error: job.error ?? { code: "internal", message: "Job failed.", retryable: true } }));
+          }
+        },
+        onError: (code, message) =>
+          setState((s) => ({ ...s, streaming: false, error: { code, message, retryable: code === "llm_unavailable" } })),
+      });
+    } catch (e) {
+      const err = e instanceof ApiCallError ? { code: e.code, message: e.message, retryable: e.retryable } : { code: "internal", message: String(e), retryable: true };
+      setState((s) => ({ ...s, streaming: false, error: err }));
+    }
+  }, []);
 
-  return { run, streaming, streamText, result, error };
+  const reset = useCallback(() => {
+    unsub.current?.();
+    setState({ streaming: false, streamText: "" });
+  }, []);
+
+  return { ...state, run, reset };
+}
+
+/** Convenience wrapper for the raw /api/jobs path (used by SOP search). */
+export function useJob<T>(type: JobType) {
+  const job = useJobStream<T>();
+  const run = useCallback(
+    (input: Record<string, unknown>) => job.run(() => submitJob(type, input, crypto.randomUUID())),
+    [job, type],
+  );
+  return { ...job, run };
 }

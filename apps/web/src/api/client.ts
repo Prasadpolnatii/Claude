@@ -1,4 +1,4 @@
-import type { ApiErrorBody, Job, JobStreamEvent, JobType } from "@ops-copilot/shared";
+import type { ApiErrorBody, Citation, Job, JobStreamEvent, JobType } from "@ops-copilot/shared";
 
 /**
  * Tiny API client. Holds the dev JWT in memory (paste from `npm run seed`).
@@ -79,7 +79,62 @@ export async function searchSops(q: string): Promise<{ hits: Array<{ id: string;
   return unwrap(res);
 }
 
-export async function listTickets(): Promise<{ tickets: Array<{ _id: string; title: string; body: string }> }> {
+export interface TicketRow {
+  _id: string;
+  title: string;
+  body: string;
+}
+
+export interface SavedSummary {
+  _id: string;
+  ticketId: string;
+  headline: string;
+  summary: string;
+  impact: string;
+  nextActions: string[];
+  confidence?: number;
+  citations?: Citation[];
+  model?: string;
+  editedByHuman: boolean;
+  updatedAt: string;
+}
+
+export async function listTickets(): Promise<{ tickets: TicketRow[] }> {
   const res = await fetch("/api/tickets", { headers: authHeaders() });
+  return unwrap(res);
+}
+
+/** Kick off summarization for a stored ticket. Returns the streaming jobId. */
+export async function summarizeTicket(ticketId: string): Promise<{ jobId: string; ticketId: string }> {
+  const res = await fetch(`/api/tickets/${ticketId}/summarize`, {
+    method: "POST",
+    headers: authHeaders({ "idempotency-key": crypto.randomUUID() }),
+  });
+  return unwrap(res);
+}
+
+export async function getTicketSummary(ticketId: string): Promise<{ summary: SavedSummary | null }> {
+  const res = await fetch(`/api/tickets/${ticketId}/summary`, { headers: authHeaders() });
+  return unwrap(res);
+}
+
+export interface SummarySaveInput {
+  headline: string;
+  summary: string;
+  impact: string;
+  nextActions: string[];
+  editedByHuman: boolean;
+  jobId?: string;
+}
+
+export async function saveTicketSummary(
+  ticketId: string,
+  body: SummarySaveInput,
+): Promise<{ summary: SavedSummary }> {
+  const res = await fetch(`/api/tickets/${ticketId}/summary`, {
+    method: "PUT",
+    headers: authHeaders(),
+    body: JSON.stringify(body),
+  });
   return unwrap(res);
 }
