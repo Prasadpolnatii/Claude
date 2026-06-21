@@ -55,3 +55,14 @@ if (config.LLM_MODE === "openai" && !config.OPENAI_API_KEY) {
   console.error("[config] LLM_MODE=openai requires OPENAI_API_KEY. Set it, or use LLM_MODE=mock.");
   process.exit(1);
 }
+
+// The shipped .env.example default secret is public. Using it means anyone can
+// forge a JWT and impersonate any tenant — fail hard in production, warn in dev.
+const PLACEHOLDER_JWT_SECRET = "change-me-in-prod-please-use-32-bytes-min";
+if (config.JWT_SECRET === PLACEHOLDER_JWT_SECRET) {
+  if (process.env.NODE_ENV === "production") {
+    console.error("[config] JWT_SECRET is the shipped placeholder. Set a unique secret before deploying.");
+    process.exit(1);
+  }
+  console.warn("[config] WARNING: using the default JWT_SECRET. Fine for local dev; NEVER deploy with it.");
+}
