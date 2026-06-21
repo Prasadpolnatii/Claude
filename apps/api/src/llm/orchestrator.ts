@@ -151,12 +151,19 @@ function guardedRedact(ctx: Ctx, parts: string[]) {
   }
 }
 
-async function callText(ctx: Ctx, tier: "small" | "large", role: string, parts: string[]) {
+async function callText(
+  ctx: Ctx,
+  tier: "small" | "large",
+  role: string,
+  parts: string[],
+  json = false,
+) {
   try {
     const res = await chat({
       tier,
       system: `${role}\n\n${INJECTION_GUARD}`,
       user: parts.join("\n\n"),
+      json,
       onToken: ctx.onToken,
     });
     recordTokens(ctx.tenantId, res.promptTokens + res.completionTokens);
@@ -167,7 +174,7 @@ async function callText(ctx: Ctx, tier: "small" | "large", role: string, parts: 
 }
 
 async function callJson(ctx: Ctx, tier: "small" | "large", role: string, parts: string[]) {
-  const res = await callText(ctx, tier, `${role} Respond with strict JSON.`, parts);
+  const res = await callText(ctx, tier, `${role} Respond with strict JSON.`, parts, true);
   let parsed: unknown;
   try {
     parsed = JSON.parse(res.text);
