@@ -31,9 +31,11 @@ function main() {
   // Everything below requires a tenant-scoped JWT.
   // Jobs are Redis-only — no Mongo dependency.
   app.use("/api/jobs", requireAuth, jobsRouter);
-  // Tickets + SOPs need Mongo — gated so they 503 cleanly when it's down.
+  // Tickets need Mongo — gated so they 503 cleanly when it's down.
   app.use("/api/tickets", requireAuth, requireMongo, ticketsRouter);
-  app.use("/api/sops", requireAuth, requireMongo, sopsRouter);
+  // SOPs are Mongo-optional: Atlas Vector Search when up, Redis-backed store in
+  // mock mode. No requireMongo gate so upload + search work without a database.
+  app.use("/api/sops", requireAuth, sopsRouter);
 
   app.use(notFound);
   app.use(errorHandler);

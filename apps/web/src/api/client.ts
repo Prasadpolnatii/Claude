@@ -79,6 +79,30 @@ export async function searchSops(q: string): Promise<{ hits: Array<{ id: string;
   return unwrap(res);
 }
 
+/** Upload a runbook (PDF / .md / .txt) for chunking + embedding. */
+export async function uploadSop(file: File, title?: string): Promise<{ document: string; chunks: number; characters: number }> {
+  const form = new FormData();
+  form.append("file", file);
+  if (title) form.append("title", title);
+  // Don't set content-type — the browser sets the multipart boundary.
+  const res = await fetch("/api/sops/upload", {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}` },
+    body: form,
+  });
+  return unwrap(res);
+}
+
+/** Grounded SOP answer (async job → SSE). Returns the streaming jobId. */
+export async function searchSopsGrounded(query: string): Promise<{ jobId: string }> {
+  const res = await fetch("/api/sops/search", {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({ query }),
+  });
+  return unwrap(res);
+}
+
 export interface TicketRow {
   _id: string;
   title: string;

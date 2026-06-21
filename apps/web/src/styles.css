@@ -61,6 +61,8 @@ label textarea { margin-top: 6px; }
 .link { background: none; border: none; color: var(--accent); padding: 0; font: inherit; }
 .error-note { border: 1px solid var(--danger); color: var(--danger); border-radius: 8px; padding: 10px; margin-bottom: 12px; display: flex; gap: 10px; align-items: center; }
 
+.sop__upload { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.sop__upload button { background: var(--panel); color: var(--text); border: 1px solid var(--line); padding: 8px 14px; border-radius: 8px; }
 .sop__hits { list-style: none; padding: 0; }
 .sop__hits li { border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-bottom: 10px; }
 .sop__hit-head { display: flex; justify-content: space-between; }

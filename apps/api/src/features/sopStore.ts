@@ -1,84 +1,103 @@
 import { config } from "../config.js";
 import { Sop } from "../models/index.js";
 import { embed } from "../llm/client.js";
-import { ensureMongo } from "../db/mongo.js";
+import { isMongoConnected } from "../db/mongo.js";
+import { mockStore } from "./redisStore.js";
+import type { Chunk } from "./chunker.js";
+import { clamp01, cosineRank } from "./vectorMath.js";
 
 /**
- * SOP retrieval. In production this uses MongoDB Atlas Vector Search ($vectorSearch).
- * Locally (plain Mongo, no Atlas) we fall back to in-memory cosine similarity so
- * the flow works without Atlas — controlled by whether $vectorSearch is available.
- *
- * Vector-store decision (taste T1): reuse MongoDB rather than add Pinecone/Chroma.
+ * SOP retrieval, dual-mode:
+ *  - MongoDB Atlas Vector Search ($vectorSearch) when Mongo is connected, with a
+ *    cosine fallback for plain local Mongo (no Atlas).
+ *  - A Redis-backed store when Mongo is down (mock mode). Redis is shared across
+ *    the API (which uploads) and the worker (which searches), so the full
+ *    upload → search flow works with no database. Embeddings come from the mock
+ *    embedder, so mock mode is fully self-contained.
  */
 
 export interface SopHit {
   id: string;
   title: string;
   text: string;
-  /** Similarity score in [0,1] used for the grounding/confidence calc. */
+  /** Similarity in [0,1] used for grounding/confidence. */
   score: number;
 }
 
+interface StoredChunk {
+  id: string;
+  title: string;
+  text: string;
+  embedding: number[];
+}
+
+const memKey = (tenantId: string) => `sops:mock:${tenantId}`;
+const MEM_TTL_SECONDS = 60 * 60 * 24; // mock store self-expires after a day
+
+/** Embed + persist document chunks. Returns the number stored. */
+export async function addSopChunks(
+  tenantId: string,
+  title: string,
+  chunks: Chunk[],
+): Promise<number> {
+  if (chunks.length === 0) return 0;
+
+  const embedded = await Promise.all(
+    chunks.map(async (c) => ({
+      title,
+      section: String(c.index),
+      text: c.text,
+      embedding: await embed(c.text),
+    })),
+  );
+
+  if (isMongoConnected()) {
+    await Sop.insertMany(embedded.map((c) => ({ ...c, tenantId })));
+  } else {
+    const items = embedded.map(
+      (c, i): StoredChunk => ({ id: `mem-${Date.now()}-${i}`, title: c.title, text: c.text, embedding: c.embedding }),
+    );
+    await mockStore.rpush(memKey(tenantId), ...items.map((i) => JSON.stringify(i)));
+    await mockStore.expire(memKey(tenantId), MEM_TTL_SECONDS);
+  }
+  return embedded.length;
+}
+
 export async function searchSops(tenantId: string, query: string, k = 5): Promise<SopHit[]> {
-  // Lazy-connect; throws DbUnavailableError (→ clean db_unavailable) if Mongo is down.
-  await ensureMongo();
   const queryVec = await embed(query);
 
-  // Try Atlas Vector Search first.
-  try {
-    const docs = await Sop.aggregate([
-      {
-        $vectorSearch: {
-          index: config.VECTOR_INDEX_NAME,
-          path: "embedding",
-          queryVector: queryVec,
-          numCandidates: Math.max(50, k * 10),
-          limit: k,
-          filter: { tenantId },
+  if (isMongoConnected()) {
+    // Atlas Vector Search first.
+    try {
+      const docs = await Sop.aggregate([
+        {
+          $vectorSearch: {
+            index: config.VECTOR_INDEX_NAME,
+            path: "embedding",
+            queryVector: queryVec,
+            numCandidates: Math.max(50, k * 10),
+            limit: k,
+            filter: { tenantId },
+          },
         },
-      },
-      { $project: { title: 1, text: 1, score: { $meta: "vectorSearchScore" } } },
-    ]);
-    if (docs.length) {
-      return docs.map((d) => ({
-        id: String(d._id),
-        title: d.title,
-        text: d.text,
-        score: clamp(d.score),
-      }));
+        { $project: { title: 1, text: 1, score: { $meta: "vectorSearchScore" } } },
+      ]);
+      if (docs.length) {
+        return docs.map((d) => ({ id: String(d._id), title: d.title, text: d.text, score: clamp01(d.score) }));
+      }
+    } catch {
+      // $vectorSearch unavailable (non-Atlas local Mongo) — fall through.
     }
-  } catch {
-    // $vectorSearch unavailable (non-Atlas local Mongo). Fall through.
+    const all = await Sop.find({ tenantId }).lean();
+    return cosineRank(
+      all.map((d) => ({ id: String(d._id), title: d.title as string, text: d.text as string, embedding: (d.embedding as number[]) ?? [] })),
+      queryVec,
+      k,
+    );
   }
 
-  return inMemorySearch(tenantId, queryVec, k);
+  // Mock mode: Redis-backed store.
+  const raw = await mockStore.lrange(memKey(tenantId), 0, -1);
+  const stored: StoredChunk[] = raw.map((r) => JSON.parse(r));
+  return cosineRank(stored, queryVec, k);
 }
-
-async function inMemorySearch(tenantId: string, queryVec: number[], k: number): Promise<SopHit[]> {
-  const docs = await Sop.find({ tenantId }).lean();
-  return docs
-    .map((d) => ({
-      id: String(d._id),
-      title: d.title as string,
-      text: d.text as string,
-      score: clamp(cosine(queryVec, (d.embedding as number[]) ?? [])),
-    }))
-    .sort((a, b) => b.score - a.score)
-    .slice(0, k);
-}
-
-function cosine(a: number[], b: number[]): number {
-  if (!a.length || a.length !== b.length) return 0;
-  let dot = 0;
-  let na = 0;
-  let nb = 0;
-  for (let i = 0; i < a.length; i++) {
-    dot += a[i]! * b[i]!;
-    na += a[i]! * a[i]!;
-    nb += b[i]! * b[i]!;
-  }
-  const denom = Math.sqrt(na) * Math.sqrt(nb);
-  return denom ? dot / denom : 0;
-}
-
-const clamp = (n: number) => Math.max(0, Math.min(1, n));
