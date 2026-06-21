@@ -1,2 +1,30 @@
 # gstack local runtime state (sessions, analytics, logs) — not project content
 .gstack/
+
+# dependencies
+node_modules/
+.pnp/
+
+# builds
+dist/
+build/
+*.tsbuildinfo
+
+# env / secrets
+.env
+.env.local
+*.local
+
+# logs
+logs/
+*.log
+npm-debug.log*
+
+# editor / OS
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# test / coverage
+coverage/

@@ -1,0 +1,11 @@
+{
+  "_comment": "Atlas Vector Search index for the `sops` collection. Create via the Atlas UI (Search > Create Index > JSON editor), the Atlas Admin API, or `npm run -w @ops-copilot/api db:atlas-indexes`. numDimensions (1536) must match EMBEDDING_DIMENSIONS / the OpenAI embedding model. tenantId is a filter field so $vectorSearch can scope per tenant.",
+  "name": "sop_vector_index",
+  "type": "vectorSearch",
+  "definition": {
+    "fields": [
+      { "type": "vector", "path": "embedding", "numDimensions": 1536, "similarity": "cosine" },
+      { "type": "filter", "path": "tenantId" }
+    ]
+  }
+}

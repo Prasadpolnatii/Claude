@@ -1,0 +1,27 @@
+{
+  "name": "ai-ops-copilot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI Operations Copilot — grounded RCA, SOP search, and ticket summarization for on-call engineers.",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "concurrently -n api,web -c blue,magenta \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:api": "npm -w @ops-copilot/api run dev",
+    "dev:web": "npm -w @ops-copilot/web run dev",
+    "worker": "npm -w @ops-copilot/api run worker",
+    "seed": "npm -w @ops-copilot/api run seed",
+    "test": "npm -w @ops-copilot/api run test",
+    "typecheck": "tsc -b --pretty"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "typescript": "^5.6.3"
+  }
+}
