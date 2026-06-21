@@ -1,6 +1,6 @@
 import { Router, type Request, type Response } from "express";
 import { z } from "zod";
-import type { Job, JobStreamEvent, JobType } from "@ops-copilot/shared";
+import type { ApiError, Job, JobStreamEvent, JobType } from "@ops-copilot/shared";
 import { generativeQueue, queueEvents } from "../queue/queue.js";
 import { asyncHandler, badRequest } from "../middleware/error.js";
 
@@ -138,8 +138,23 @@ async function toClientJob(job: Awaited<ReturnType<typeof generativeQueue.getJob
     createdAt: new Date(job!.timestamp).toISOString(),
     updatedAt: new Date(job!.processedOn ?? job!.timestamp).toISOString(),
     result: job!.returnvalue ?? undefined,
-    error: job!.failedReason
-      ? { code: "internal", message: job!.failedReason, retryable: true }
-      : undefined,
+    error: job!.failedReason ? decodeJobError(job!.failedReason) : undefined,
   };
+}
+
+/**
+ * The worker JSON-encodes a classified ApiError into the failure message so the
+ * real `code` + `retryable` survive BullMQ (which only persists a string).
+ * Recover it; fall back to a generic internal error for anything else.
+ */
+function decodeJobError(failedReason: string): ApiError {
+  try {
+    const parsed = JSON.parse(failedReason) as Partial<ApiError>;
+    if (parsed && typeof parsed.code === "string" && typeof parsed.retryable === "boolean") {
+      return { code: parsed.code, message: parsed.message ?? "Job failed.", retryable: parsed.retryable };
+    }
+  } catch {
+    /* not our envelope */
+  }
+  return { code: "internal", message: failedReason, retryable: true };
 }

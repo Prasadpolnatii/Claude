@@ -1,6 +1,7 @@
 import { config } from "../config.js";
 import { Sop } from "../models/index.js";
 import { embed } from "../llm/client.js";
+import { redact } from "../llm/redaction.js";
 import { isMongoConnected } from "../db/mongo.js";
 import { mockStore } from "./redisStore.js";
 import type { Chunk } from "./chunker.js";
@@ -64,7 +65,11 @@ export async function addSopChunks(
 }
 
 export async function searchSops(tenantId: string, query: string, k = 5): Promise<SopHit[]> {
-  const queryVec = await embed(query);
+  // Redact before embedding: embed() is an OpenAI call, and the raw query (e.g.
+  // from GET /sops/search) may carry PII. Idempotent on the already-redacted
+  // text the orchestrator passes. (SOP *content* is the trusted knowledge base
+  // and is intentionally embedded as-is.)
+  const queryVec = await embed(redact(query).text);
 
   if (isMongoConnected()) {
     // Atlas Vector Search first.

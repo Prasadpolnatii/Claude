@@ -212,7 +212,10 @@ async function callText(
       system: `${role}\n\n${INJECTION_GUARD}`,
       user: parts.join("\n\n"),
       json,
-      onToken: ctx.onToken,
+      // Stream tokens only for prose answers. Partial JSON (ticket summary, RCA)
+      // is useless to display, so we let the UI show a "Thinking…" state and
+      // render the structured result on completion.
+      onToken: json ? undefined : ctx.onToken,
     });
     recordTokens(ctx.tenantId, res.promptTokens + res.completionTokens);
     return res;

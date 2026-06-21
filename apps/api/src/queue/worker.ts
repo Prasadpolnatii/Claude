@@ -1,5 +1,5 @@
-import { Worker } from "bullmq";
-import type { ApiError, JobResultMap } from "@ops-copilot/shared";
+import { Worker, type Job } from "bullmq";
+import type { ApiError, JobResultMap, JobType } from "@ops-copilot/shared";
 import { config } from "../config.js";
 import { sharedConnection, JOB_QUEUE, type JobPayload } from "./queue.js";
 import { warmConnectMongo } from "../db/mongo.js";
@@ -29,6 +29,18 @@ warmConnectMongo("worker boot");
 const worker = new Worker<JobPayload>(
   JOB_QUEUE,
   async (job) => {
+    try {
+      return await process(job);
+    } catch (err) {
+      // Encode the classified ApiError into the failure so the SSE layer can
+      // recover the real code + retryable (BullMQ only persists the message).
+      throw new Error(JSON.stringify(classify(err)));
+    }
+  },
+  { connection: sharedConnection, concurrency: 4 },
+);
+
+async function process(job: Job<JobPayload>): Promise<JobResultMap[JobType]> {
     const { tenantId, type, input } = job.data;
 
     if (isOverBudget(tenantId)) {
@@ -63,15 +75,17 @@ const worker = new Worker<JobPayload>(
     }
 
     return result;
-  },
-  { connection: sharedConnection, concurrency: 4 },
-);
+}
 
 worker.on("failed", (job, err) => {
-  // Map known failure classes to the uniform envelope so the UI can decide
-  // retryable vs. not.
-  const apiErr = classify(err);
-  console.error(`[worker] job ${job?.id} failed: ${apiErr.code} — ${apiErr.message}`);
+  // The processor already classified + JSON-encoded the failure; decode for logs.
+  let code = "internal";
+  try {
+    code = (JSON.parse(err?.message ?? "{}") as ApiError).code ?? "internal";
+  } catch {
+    /* not our envelope */
+  }
+  console.error(`[worker] job ${job?.id} failed: ${code} — ${err?.message}`);
 });
 
 worker.on("completed", (job) => console.log(`[worker] job ${job.id} completed`));
