@@ -8,6 +8,7 @@ import { errorHandler, notFound } from "./middleware/error.js";
 import { jobsRouter } from "./routes/jobs.js";
 import { ticketsRouter } from "./routes/tickets.js";
 import { sopsRouter } from "./routes/sops.js";
+import { rcaRouter } from "./routes/rca.js";
 
 /**
  * API entrypoint. Serves HTTP only; generative work runs in the worker
@@ -36,6 +37,9 @@ function main() {
   // SOPs are Mongo-optional: Atlas Vector Search when up, Redis-backed store in
   // mock mode. No requireMongo gate so upload + search work without a database.
   app.use("/api/sops", requireAuth, sopsRouter);
+  // RCA: generation is Mongo-optional (mock mode); persistence (POST/GET) gates
+  // Mongo per-route inside the router.
+  app.use("/api/rca", requireAuth, rcaRouter);
 
   app.use(notFound);
   app.use(errorHandler);

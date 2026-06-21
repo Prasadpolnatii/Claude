@@ -103,6 +103,49 @@ export async function searchSopsGrounded(query: string): Promise<{ jobId: string
   return unwrap(res);
 }
 
+export interface SavedRca {
+  _id: string;
+  incidentId?: string;
+  title: string;
+  rootCause: string;
+  contributingFactors: string[];
+  timeline: string[];
+  remediation: string[];
+  confidence?: number;
+  citations?: Citation[];
+  model?: string;
+  editedByHuman: boolean;
+  updatedAt: string;
+}
+
+/** Start grounded RCA generation (async job → SSE). Returns the streaming jobId. */
+export async function generateRca(incidentSummary: string, logSnippet: string): Promise<{ jobId: string }> {
+  const res = await fetch("/api/rca/generate", {
+    method: "POST",
+    headers: authHeaders({ "idempotency-key": crypto.randomUUID() }),
+    body: JSON.stringify({ incidentSummary, logSnippet }),
+  });
+  return unwrap(res);
+}
+
+export interface RcaSaveInput {
+  incidentId?: string;
+  jobId?: string;
+  title: string;
+  rootCause: string;
+  contributingFactors: string[];
+  timeline: string[];
+  remediation: string[];
+  confidence?: number;
+  citations?: Citation[];
+  editedByHuman: boolean;
+}
+
+export async function saveRca(body: RcaSaveInput): Promise<{ rca: SavedRca }> {
+  const res = await fetch("/api/rca", { method: "POST", headers: authHeaders(), body: JSON.stringify(body) });
+  return unwrap(res);
+}
+
 export interface TicketRow {
   _id: string;
   title: string;

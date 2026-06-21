@@ -58,14 +58,22 @@ const sopSchema = new Schema(
   { timestamps: true },
 );
 
-// ── RCA documents ────────────────────────────────────────────────────────────
+// ── RCA documents (persisted, human-editable) ────────────────────────────────
+// `incidentId` is a free-form string (an incident may not be a stored entity in
+// mock mode). One current RCA per incidentId when provided (upserted).
 const rcaSchema = new Schema(
   {
     ...tenantScoped,
-    incidentId: { type: Schema.Types.ObjectId, ref: "Incident" },
-    document: Schema.Types.Mixed,
-    citations: { type: [Schema.Types.Mixed], default: [] },
+    incidentId: { type: String, index: true },
+    jobId: String,
+    title: { type: String, required: true },
+    rootCause: { type: String, required: true },
+    contributingFactors: { type: [String], default: [] },
+    timeline: { type: [String], default: [] },
+    remediation: { type: [String], default: [] },
     confidence: Number,
+    citations: { type: [Schema.Types.Mixed], default: [] },
+    model: String,
     editedByHuman: { type: Boolean, default: false },
   },
   { timestamps: true },

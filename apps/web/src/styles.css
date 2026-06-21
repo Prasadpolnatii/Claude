@@ -83,6 +83,11 @@ label textarea { margin-top: 6px; }
 .saved-summary { border: 1px dashed var(--line); border-radius: 12px; padding: 14px; margin-top: 12px; }
 .saved-summary h4 { margin: 0 0 8px; color: var(--ok); font-size: 13px; }
 
+.rca { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.rca__inputs button { background: var(--accent); color: white; border: none; padding: 8px 14px; border-radius: 8px; }
+.rca__inputs button:disabled { opacity: 0.5; }
+@media (max-width: 820px) { .rca { grid-template-columns: 1fr; } }
+
 .gate { max-width: 520px; margin: 80px auto; padding: 24px; }
 .gate textarea { margin: 12px 0; }
 .gate button { background: var(--accent); color: white; border: none; padding: 10px 18px; border-radius: 8px; }
