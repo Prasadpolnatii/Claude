@@ -29,9 +29,10 @@ function main() {
     res.json({ ok: true, llmMode: config.LLM_MODE, mongo: mongoState() }),
   );
 
-  // Everything below requires a tenant-scoped JWT.
-  // Jobs are Redis-only — no Mongo dependency.
-  app.use("/api/jobs", requireAuth, jobsRouter);
+  // Jobs are Redis-only. Auth is applied per-route inside the router: header
+  // bearer for submit/poll/stream-token, a short-lived stream token for the SSE
+  // route (EventSource can't send headers).
+  app.use("/api/jobs", jobsRouter);
   // Tickets need Mongo — gated so they 503 cleanly when it's down.
   app.use("/api/tickets", requireAuth, requireMongo, ticketsRouter);
   // SOPs are Mongo-optional: Atlas Vector Search when up, Redis-backed store in

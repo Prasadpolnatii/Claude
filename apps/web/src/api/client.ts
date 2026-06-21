@@ -44,18 +44,30 @@ export async function submitJob(
 
 /**
  * Stream a job's tokens + final result over SSE. Returns an unsubscribe fn.
- * `EventSource` can't send Authorization headers, so the token rides as a query
- * param in dev. In production, prefer a short-lived signed stream URL.
+ *
+ * EventSource can't send an Authorization header, so we first exchange the
+ * session JWT (header auth) for a short-lived, job-scoped stream token, then put
+ * THAT in the URL — never the long-lived session token.
  */
-export function streamJob(
+export async function streamJob(
   jobId: string,
   handlers: {
     onToken?: (t: string) => void;
     onDone?: (job: Job) => void;
     onError?: (code: string, message: string) => void;
   },
-): () => void {
-  const es = new EventSource(`/api/jobs/${jobId}/stream?access_token=${encodeURIComponent(token)}`);
+): Promise<() => void> {
+  let streamToken: string;
+  try {
+    const res = await fetch(`/api/jobs/${jobId}/stream-token`, { headers: authHeaders() });
+    streamToken = (await unwrap<{ streamToken: string }>(res)).streamToken;
+  } catch (e) {
+    const msg = e instanceof ApiCallError ? e.message : "Failed to authorize stream.";
+    handlers.onError?.("stream_auth", msg);
+    return () => {};
+  }
+
+  const es = new EventSource(`/api/jobs/${jobId}/stream?t=${encodeURIComponent(streamToken)}`);
   es.onmessage = (ev) => {
     const event = JSON.parse(ev.data) as JobStreamEvent;
     if (event.type === "token") handlers.onToken?.(event.text);

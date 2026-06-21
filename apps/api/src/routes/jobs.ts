@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from "express";
 import { z } from "zod";
 import type { ApiError, Job, JobStreamEvent, JobType } from "@ops-copilot/shared";
 import { generativeQueue, queueEvents } from "../queue/queue.js";
+import { requireAuth, requireStreamToken, signStreamToken } from "../auth/jwt.js";
 import { asyncHandler, badRequest } from "../middleware/error.js";
 
 export const jobsRouter = Router();
@@ -22,7 +23,7 @@ const submitSchema = z.discriminatedUnion("type", [
  * POST /api/jobs — enqueue a generative job. Returns 202 + jobId (async contract).
  * Supports `Idempotency-Key` so a double-click doesn't burn two LLM calls.
  */
-jobsRouter.post("/", asyncHandler(async (req: Request, res: Response) => {
+jobsRouter.post("/", requireAuth, asyncHandler(async (req: Request, res: Response) => {
   const parsed = submitSchema.safeParse(req.body);
   if (!parsed.success) throw badRequest(parsed.error.issues.map((i) => i.message).join("; "));
 
@@ -48,17 +49,28 @@ jobsRouter.post("/", asyncHandler(async (req: Request, res: Response) => {
 }));
 
 /** GET /api/jobs/:id — poll status/result. */
-jobsRouter.get("/:id", asyncHandler(async (req: Request, res: Response) => {
+jobsRouter.get("/:id", requireAuth, asyncHandler(async (req: Request, res: Response) => {
   const job = await loadOwnedJob(req, res);
   if (!job) return;
   res.json(await toClientJob(job, req.auth!.tenantId));
 }));
 
 /**
+ * GET /api/jobs/:id/stream-token — mint a short-lived (60s), job-scoped token so
+ * EventSource (which can't send headers) can authenticate the stream without
+ * putting the session JWT in a URL.
+ */
+jobsRouter.get("/:id/stream-token", requireAuth, asyncHandler(async (req: Request, res: Response) => {
+  const job = await loadOwnedJob(req, res);
+  if (!job) return;
+  res.json({ streamToken: signStreamToken(req.auth!.tenantId, req.params.id!), expiresIn: 60 });
+}));
+
+/**
  * GET /api/jobs/:id/stream — SSE. Streams token deltas as the worker produces
  * them, then a final `done` event. The browser renders this as live output.
  */
-jobsRouter.get("/:id/stream", asyncHandler(async (req: Request, res: Response) => {
+jobsRouter.get("/:id/stream", requireStreamToken, asyncHandler(async (req: Request, res: Response) => {
   const job = await loadOwnedJob(req, res);
   if (!job) return;
 

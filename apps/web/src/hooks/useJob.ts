@@ -24,7 +24,7 @@ export function useJobStream<T>() {
     setState({ streaming: true, streamText: "", result: undefined, error: undefined });
     try {
       const { jobId } = await submit();
-      unsub.current = streamJob(jobId, {
+      unsub.current = await streamJob(jobId, {
         onToken: (t) => setState((s) => ({ ...s, streamText: s.streamText + t })),
         onDone: (job) => {
           if (job.status === "succeeded") {
