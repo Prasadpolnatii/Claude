@@ -64,7 +64,7 @@ export async function connectMongo(): Promise<typeof mongoose> {
 
   state = "connecting";
   connectPromise = mongoose
-    .connect(config.MONGODB_URI, { serverSelectionTimeoutMS: 3000 })
+    .connect(config.MONGODB_URI, { serverSelectionTimeoutMS: config.MONGO_SERVER_SELECTION_TIMEOUT_MS })
     .then((m) => {
       state = "connected";
       console.log(`[mongo] connected: ${config.MONGODB_URI.replace(/\/\/[^@]*@/, "//***@")}`);
@@ -79,13 +79,24 @@ export async function connectMongo(): Promise<typeof mongoose> {
   return connectPromise;
 }
 
-/** Best-effort warm connect at boot. Never throws — logs and moves on. */
+/**
+ * Best-effort warm connect at boot. Never throws — logs and moves on. On a
+ * successful connect it ensures indexes (collection + Atlas Vector Search) once.
+ */
 export function warmConnectMongo(context: string): void {
-  connectMongo().catch(() => {
-    console.warn(
-      `[mongo] not reachable at ${context}. Health + jobs work; ticket/SOP features will 503 until Mongo is up.`,
-    );
-  });
+  connectMongo()
+    .then(async () => {
+      // Lazy import to avoid pulling the model graph into modules that only
+      // need the connector.
+      const { ensureCollectionIndexes, ensureVectorSearchIndex } = await import("./indexes.js");
+      await ensureCollectionIndexes().catch((e) => console.warn("[mongo] index bootstrap failed", e));
+      await ensureVectorSearchIndex().catch(() => {});
+    })
+    .catch(() => {
+      console.warn(
+        `[mongo] not reachable at ${context}. Health + jobs work; ticket/SOP features will 503 until Mongo is up.`,
+      );
+    });
 }
 
 export async function disconnectMongo(): Promise<void> {

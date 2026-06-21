@@ -81,6 +81,26 @@ Flip to live OpenAI: set `LLM_MODE=openai` + `OPENAI_API_KEY` in `.env`.
 > production, use MongoDB Atlas and create a Vector Search index named
 > `sop_vector_index` on `sops.embedding`.
 
+## MongoDB Atlas (production)
+
+1. **Connect:** set `MONGODB_URI` to your Atlas SRV string, e.g.
+   `mongodb+srv://USER:PASS@cluster0.xxxxx.mongodb.net/ops_copilot?retryWrites=true&w=majority`.
+   `MONGO_SERVER_SELECTION_TIMEOUT_MS` defaults to 5000 (Atlas needs more than a
+   local socket).
+2. **Indexes:** `npm run -w @ops-copilot/api db:indexes` builds the collection
+   indexes everywhere and creates the **Atlas Vector Search** index when pointed
+   at Atlas. The index also auto-creates on first boot (best-effort). The
+   definition lives at [`apps/api/atlas/sop_vector_index.json`](apps/api/atlas/sop_vector_index.json)
+   (`embedding`: 1536-dim cosine; `tenantId` as a filter field). `EMBEDDING_DIMENSIONS`
+   must match your embedding model and the index.
+3. **Verify:** the integration tests (`src/integration/realdb.test.ts`) exercise
+   ticket/RCA persistence and SOP store→retrieval against a real database. They run
+   in CI against a `mongo:7` service and skip when no `MONGODB_URI` is reachable.
+
+> On plain MongoDB (non-Atlas), `$vectorSearch` is unavailable and the code falls
+> back to cosine over `Sop.find()` — correct, but O(n); Atlas Vector Search is
+> required for scale.
+
 ## Tests
 
 ```bash

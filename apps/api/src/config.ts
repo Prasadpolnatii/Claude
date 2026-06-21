@@ -32,6 +32,12 @@ const schema = z.object({
 
   MONGODB_URI: z.string().default("mongodb://localhost:27017/ops_copilot"),
   VECTOR_INDEX_NAME: z.string().default("sop_vector_index"),
+  // Atlas (SRV + TLS + DNS) needs more than a local socket; 5s default. Lower it
+  // only if you rely on fast boot-time degradation against a local Mongo.
+  MONGO_SERVER_SELECTION_TIMEOUT_MS: z.coerce.number().default(5000),
+  // Embedding dimensions must match the Atlas vector index. text-embedding-3-small
+  // and the mock embedder are both 1536.
+  EMBEDDING_DIMENSIONS: z.coerce.number().default(1536),
   REDIS_URL: z.string().default("redis://localhost:6379"),
 
   JWT_SECRET: z.string().min(16, "JWT_SECRET must be at least 16 chars"),
