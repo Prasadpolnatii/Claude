@@ -2,12 +2,13 @@ import { Worker } from "bullmq";
 import type { ApiError, JobResultMap } from "@ops-copilot/shared";
 import { config } from "../config.js";
 import { connection, JOB_QUEUE, type JobPayload } from "./queue.js";
-import { connectMongo } from "../db/mongo.js";
+import { warmConnectMongo } from "../db/mongo.js";
 import {
   answerFromSops,
   generateRca,
   summarizeTicket,
   LlmError,
+  DbUnavailableError,
 } from "../llm/orchestrator.js";
 import { RedactionError } from "../llm/redaction.js";
 import { isOverBudget } from "../features/audit.js";
@@ -17,9 +18,13 @@ import { isOverBudget } from "../features/audit.js";
  * tokens to the queue events bus (the SSE route relays them to the browser).
  *
  * Run with: `npm run worker`. Scale horizontally by running N copies.
+ *
+ * Boots WITHOUT blocking on Mongo. `ticket_summary` needs no DB and runs in pure
+ * mock mode; `sop_search`/`rca` lazy-connect Mongo and fail with a clean
+ * `db_unavailable` if it's down.
  */
 
-await connectMongo();
+warmConnectMongo("worker boot");
 
 const worker = new Worker<JobPayload>(
   JOB_QUEUE,
@@ -75,6 +80,9 @@ function classify(err: unknown): ApiError {
     // FAIL CLOSED: redaction failure means we never sent the prompt. Not retryable
     // without code/config fix.
     return toApiError("redaction_failed", "Redaction failed; LLM call aborted to prevent PII leak.", false);
+  }
+  if (err instanceof DbUnavailableError) {
+    return toApiError("db_unavailable", "This feature needs MongoDB, which is unavailable.", true);
   }
   if (err instanceof LlmError) {
     return toApiError("llm_unavailable", "The model is temporarily unavailable.", true);

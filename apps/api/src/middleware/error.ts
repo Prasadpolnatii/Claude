@@ -36,3 +36,15 @@ export function errorHandler(
 
 export const badRequest = (message: string) =>
   new HttpError(400, { code: "bad_request", message, retryable: false });
+
+/**
+ * Wrap async route handlers so a rejected promise reaches `errorHandler` instead
+ * of crashing the process. Express 4 does not catch async errors on its own.
+ */
+export function asyncHandler(
+  fn: (req: Request, res: Response, next: NextFunction) => Promise<unknown>,
+) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    fn(req, res, next).catch(next);
+  };
+}

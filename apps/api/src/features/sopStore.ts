@@ -1,6 +1,7 @@
 import { config } from "../config.js";
 import { Sop } from "../models/index.js";
 import { embed } from "../llm/client.js";
+import { ensureMongo } from "../db/mongo.js";
 
 /**
  * SOP retrieval. In production this uses MongoDB Atlas Vector Search ($vectorSearch).
@@ -19,6 +20,8 @@ export interface SopHit {
 }
 
 export async function searchSops(tenantId: string, query: string, k = 5): Promise<SopHit[]> {
+  // Lazy-connect; throws DbUnavailableError (→ clean db_unavailable) if Mongo is down.
+  await ensureMongo();
   const queryVec = await embed(query);
 
   // Try Atlas Vector Search first.

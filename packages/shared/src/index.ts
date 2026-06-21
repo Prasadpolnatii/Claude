@@ -88,6 +88,7 @@ export type ApiErrorCode =
   | "budget_exceeded"
   | "redaction_failed"
   | "llm_unavailable"
+  | "db_unavailable"
   | "internal";
 
 export interface ApiErrorBody {

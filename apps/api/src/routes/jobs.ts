@@ -2,9 +2,12 @@ import { Router, type Request, type Response } from "express";
 import { z } from "zod";
 import type { Job, JobStreamEvent, JobType } from "@ops-copilot/shared";
 import { generativeQueue, queueEvents } from "../queue/queue.js";
-import { badRequest } from "../middleware/error.js";
+import { asyncHandler, badRequest } from "../middleware/error.js";
 
 export const jobsRouter = Router();
+
+/** BullMQ custom job ids may not contain ":". Keep them filesystem/id-safe. */
+const safeId = (s: string) => s.replace(/[^a-zA-Z0-9_-]/g, "_");
 
 const submitSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("ticket_summary"), input: z.object({ ticketText: z.string().min(1) }) }),
@@ -19,13 +22,13 @@ const submitSchema = z.discriminatedUnion("type", [
  * POST /api/jobs — enqueue a generative job. Returns 202 + jobId (async contract).
  * Supports `Idempotency-Key` so a double-click doesn't burn two LLM calls.
  */
-jobsRouter.post("/", async (req: Request, res: Response) => {
+jobsRouter.post("/", asyncHandler(async (req: Request, res: Response) => {
   const parsed = submitSchema.safeParse(req.body);
   if (!parsed.success) throw badRequest(parsed.error.issues.map((i) => i.message).join("; "));
 
   const tenantId = req.auth!.tenantId;
   const idempotencyKey = req.header("idempotency-key");
-  const jobId = idempotencyKey ? `${tenantId}:${idempotencyKey}` : undefined;
+  const jobId = idempotencyKey ? `idem_${safeId(tenantId)}_${safeId(idempotencyKey)}` : undefined;
 
   if (jobId) {
     const existing = await generativeQueue.getJob(jobId);
@@ -42,20 +45,20 @@ jobsRouter.post("/", async (req: Request, res: Response) => {
   );
 
   res.status(202).json({ jobId: job.id });
-});
+}));
 
 /** GET /api/jobs/:id — poll status/result. */
-jobsRouter.get("/:id", async (req: Request, res: Response) => {
+jobsRouter.get("/:id", asyncHandler(async (req: Request, res: Response) => {
   const job = await loadOwnedJob(req, res);
   if (!job) return;
   res.json(await toClientJob(job, req.auth!.tenantId));
-});
+}));
 
 /**
  * GET /api/jobs/:id/stream — SSE. Streams token deltas as the worker produces
  * them, then a final `done` event. The browser renders this as live output.
  */
-jobsRouter.get("/:id/stream", async (req: Request, res: Response) => {
+jobsRouter.get("/:id/stream", asyncHandler(async (req: Request, res: Response) => {
   const job = await loadOwnedJob(req, res);
   if (!job) return;
 
@@ -96,7 +99,7 @@ jobsRouter.get("/:id/stream", async (req: Request, res: Response) => {
     queueEvents.off("failed", onFailed);
   }
   req.on("close", cleanup);
-});
+}));
 
 async function loadOwnedJob(req: Request, res: Response) {
   const job = await generativeQueue.getJob(req.params.id!);

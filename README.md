@@ -42,6 +42,18 @@ MongoDB ◄── app data + Vector Search (SOP embeddings) ◄─────�
 The **API process serves HTTP only**; generative work runs in a **separate worker**.
 Both share Redis + Mongo. Run both.
 
+### Degrades gracefully without MongoDB
+
+The API boots even when Mongo is down. Health + job endpoints (Redis-only) work
+immediately; Mongo is **lazy-connected** on first use by the ticket/SOP routes,
+which return a clean `503 db_unavailable` if it's unreachable. This keeps
+mock-mode demos fully working with just Redis — no database required.
+
+| Endpoint | Needs Mongo? |
+|----------|--------------|
+| `GET /api/health` · `POST /api/jobs` · SSE stream · `ticket_summary` jobs | No |
+| `GET/POST /api/tickets` · `/api/sops` · `sop_search` + `rca` jobs | Yes (503 if down) |
+
 ## Quick start (≈ 15 min, no OpenAI key needed)
 
 ```bash

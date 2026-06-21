@@ -50,6 +50,10 @@ export class LlmError extends Error {
   }
 }
 
+// Re-exported so the worker can classify DB failures without importing the db
+// module directly (keeps the failure taxonomy in one place for callers).
+export { DbUnavailableError } from "../db/mongo.js";
+
 interface Ctx {
   tenantId: string;
   jobId: string;

@@ -1,5 +1,23 @@
-import "dotenv/config";
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import dotenv from "dotenv";
 import { z } from "zod";
+
+// Workspace scripts run with cwd in apps/api, so a root .env wouldn't be found
+// by dotenv's default ./.env. Walk up from this file to the first .env.
+(function loadEnv() {
+  let dir = dirname(fileURLToPath(import.meta.url));
+  for (let i = 0; i < 6; i++) {
+    const candidate = join(dir, ".env");
+    if (existsSync(candidate)) {
+      dotenv.config({ path: candidate });
+      return;
+    }
+    dir = dirname(dir);
+  }
+  dotenv.config(); // fall back to default lookup / real env vars
+})();
 
 /**
  * Fail-fast config. A missing JWT secret or Mongo URI should crash on boot,

@@ -1,5 +1,6 @@
 import { config } from "../config.js";
 import { RedactionAudit } from "../models/index.js";
+import { isMongoConnected } from "../db/mongo.js";
 
 /**
  * Audit + budget guardrails.
@@ -13,6 +14,12 @@ import { RedactionAudit } from "../models/index.js";
 const dailyTokens = new Map<string, { day: string; used: number }>();
 
 export function recordRedaction(tenantId: string, jobId: string, hits: Record<string, number>): void {
+  // Degrade quietly when Mongo is down (e.g. no-DB mock demos): the redaction
+  // still happened and protected the data — only the audit row is skipped.
+  if (!isMongoConnected()) {
+    console.warn(`[audit] mongo down — redaction audit row skipped for job ${jobId}`);
+    return;
+  }
   // Fire-and-forget; never block the LLM path on the audit write, but log failures.
   void RedactionAudit.create({ tenantId, jobId, hits }).catch((err) =>
     console.error("[audit] failed to write redaction log", err),
