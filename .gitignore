@@ -1,0 +1,2 @@
+# gstack local runtime state (sessions, analytics, logs) — not project content
+.gstack/
