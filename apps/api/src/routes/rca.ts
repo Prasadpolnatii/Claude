@@ -5,6 +5,7 @@ import { Rca } from "../models/index.js";
 import { generativeQueue } from "../queue/queue.js";
 import { rcaGenerateSchema, rcaSaveInputSchema } from "../features/rca.js";
 import { requireMongo } from "../middleware/requireMongo.js";
+import { generativeLimiter } from "../middleware/rateLimit.js";
 import { asyncHandler, badRequest } from "../middleware/error.js";
 
 export const rcaRouter = Router();
@@ -16,7 +17,7 @@ export const rcaRouter = Router();
  * optional: works in mock mode (SOP retrieval falls back to the Redis store).
  * The client streams the result via GET /api/jobs/:id/stream.
  */
-rcaRouter.post("/generate", asyncHandler(async (req: Request, res: Response) => {
+rcaRouter.post("/generate", generativeLimiter, asyncHandler(async (req: Request, res: Response) => {
   const parsed = rcaGenerateSchema.safeParse(req.body);
   if (!parsed.success) throw badRequest(parsed.error.issues.map((i) => i.message).join("; "));
 

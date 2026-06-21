@@ -5,6 +5,7 @@ import type { JobType } from "@ops-copilot/shared";
 import { Summary, Ticket } from "../models/index.js";
 import { generativeQueue } from "../queue/queue.js";
 import { ticketSummaryInputSchema } from "../features/summary.js";
+import { generativeLimiter } from "../middleware/rateLimit.js";
 import { asyncHandler, badRequest } from "../middleware/error.js";
 
 export const ticketsRouter = Router();
@@ -35,7 +36,7 @@ ticketsRouter.post("/", asyncHandler(async (req: Request, res: Response) => {
  * job, returning 202 + jobId. The client then streams the result via
  * GET /api/jobs/:id/stream. Pass an `Idempotency-Key` to dedupe double-clicks.
  */
-ticketsRouter.post("/:id/summarize", asyncHandler(async (req: Request, res: Response) => {
+ticketsRouter.post("/:id/summarize", generativeLimiter, asyncHandler(async (req: Request, res: Response) => {
   const { id } = req.params;
   if (!mongoose.isValidObjectId(id)) throw badRequest("invalid ticket id");
 

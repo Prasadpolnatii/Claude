@@ -4,6 +4,7 @@ import { config } from "./config.js";
 import { mongoState, warmConnectMongo } from "./db/mongo.js";
 import { requireAuth } from "./auth/jwt.js";
 import { requireMongo } from "./middleware/requireMongo.js";
+import { globalLimiter } from "./middleware/rateLimit.js";
 import { errorHandler, notFound } from "./middleware/error.js";
 import { jobsRouter } from "./routes/jobs.js";
 import { ticketsRouter } from "./routes/tickets.js";
@@ -21,6 +22,9 @@ import { rcaRouter } from "./routes/rca.js";
 
 function main() {
   const app = express();
+  // Behind a proxy/load balancer, trust X-Forwarded-For so req.ip (used by the
+  // rate limiter) reflects the real client. Loopback-only by default.
+  app.set("trust proxy", "loopback");
   app.use(cors({ origin: config.WEB_ORIGIN }));
   app.use(express.json({ limit: "2mb" }));
 
@@ -28,6 +32,10 @@ function main() {
   app.get("/api/health", (_req, res) =>
     res.json({ ok: true, llmMode: config.LLM_MODE, mongo: mongoState() }),
   );
+
+  // Global per-IP flood guard for the whole API (after health so monitors aren't
+  // limited).
+  app.use("/api", globalLimiter);
 
   // Jobs are Redis-only. Auth is applied per-route inside the router: header
   // bearer for submit/poll/stream-token, a short-lived stream token for the SSE

@@ -6,6 +6,7 @@ import { addSopChunks, searchSops } from "../features/sopStore.js";
 import { chunkText } from "../features/chunker.js";
 import { extractText } from "../features/docExtract.js";
 import { generativeQueue } from "../queue/queue.js";
+import { generativeLimiter } from "../middleware/rateLimit.js";
 import { asyncHandler, badRequest } from "../middleware/error.js";
 
 export const sopsRouter = Router();
@@ -20,7 +21,7 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 
  *
  * multipart/form-data: `file` (required), `title` (optional override).
  */
-sopsRouter.post("/upload", upload.single("file"), asyncHandler(async (req: Request, res: Response) => {
+sopsRouter.post("/upload", generativeLimiter, upload.single("file"), asyncHandler(async (req: Request, res: Response) => {
   const file = req.file;
   if (!file) throw badRequest("multipart field `file` is required");
 
@@ -40,7 +41,7 @@ sopsRouter.post("/upload", upload.single("file"), asyncHandler(async (req: Reque
  * answer + citations + confidence via GET /api/jobs/:id/stream.
  */
 const searchSchema = z.object({ query: z.string().trim().min(1).max(1000) });
-sopsRouter.post("/search", asyncHandler(async (req: Request, res: Response) => {
+sopsRouter.post("/search", generativeLimiter, asyncHandler(async (req: Request, res: Response) => {
   const parsed = searchSchema.safeParse(req.body);
   if (!parsed.success) throw badRequest(parsed.error.issues.map((i) => i.message).join("; "));
 

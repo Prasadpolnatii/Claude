@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { ApiError, Job, JobStreamEvent, JobType } from "@ops-copilot/shared";
 import { generativeQueue, queueEvents } from "../queue/queue.js";
 import { requireAuth, requireStreamToken, signStreamToken } from "../auth/jwt.js";
+import { generativeLimiter } from "../middleware/rateLimit.js";
 import { asyncHandler, badRequest } from "../middleware/error.js";
 
 export const jobsRouter = Router();
@@ -23,7 +24,7 @@ const submitSchema = z.discriminatedUnion("type", [
  * POST /api/jobs — enqueue a generative job. Returns 202 + jobId (async contract).
  * Supports `Idempotency-Key` so a double-click doesn't burn two LLM calls.
  */
-jobsRouter.post("/", requireAuth, asyncHandler(async (req: Request, res: Response) => {
+jobsRouter.post("/", requireAuth, generativeLimiter, asyncHandler(async (req: Request, res: Response) => {
   const parsed = submitSchema.safeParse(req.body);
   if (!parsed.success) throw badRequest(parsed.error.issues.map((i) => i.message).join("; "));
 
