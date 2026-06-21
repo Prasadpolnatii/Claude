@@ -38,6 +38,7 @@ export function requireAuth(req: Request, res: Response<ApiErrorBody>, next: Nex
   try {
     const payload = jwt.verify(raw, config.JWT_SECRET, {
       issuer: config.JWT_ISSUER,
+      algorithms: ["HS256"], // pin: don't honor the alg the token claims
     }) as jwt.JwtPayload;
 
     if (!payload.tenantId || !payload.sub) {

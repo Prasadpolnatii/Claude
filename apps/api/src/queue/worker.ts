@@ -1,7 +1,7 @@
 import { Worker } from "bullmq";
 import type { ApiError, JobResultMap } from "@ops-copilot/shared";
 import { config } from "../config.js";
-import { connection, JOB_QUEUE, type JobPayload } from "./queue.js";
+import { sharedConnection, JOB_QUEUE, type JobPayload } from "./queue.js";
 import { warmConnectMongo } from "../db/mongo.js";
 import {
   answerFromSops,
@@ -38,7 +38,9 @@ const worker = new Worker<JobPayload>(
     const ctx = {
       tenantId,
       jobId: job.id ?? "unknown",
-      onToken: (t: string) => job.updateProgress({ token: t }),
+      // Fire-and-forget progress; swallow rejections so a transient Redis blip
+      // on a token update doesn't become an unhandled rejection.
+      onToken: (t: string) => void job.updateProgress({ token: t }).catch(() => {}),
     };
 
     let result: JobResultMap[typeof type];
@@ -62,7 +64,7 @@ const worker = new Worker<JobPayload>(
 
     return result;
   },
-  { connection, concurrency: 4 },
+  { connection: sharedConnection, concurrency: 4 },
 );
 
 worker.on("failed", (job, err) => {

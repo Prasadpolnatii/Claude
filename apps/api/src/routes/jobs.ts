@@ -91,7 +91,6 @@ jobsRouter.get("/:id/stream", asyncHandler(async (req: Request, res: Response) =
   queueEvents.on("progress", onProgress);
   queueEvents.on("completed", onCompleted);
   queueEvents.on("failed", onFailed);
-  send({ type: "status", status: "running" });
 
   function cleanup() {
     queueEvents.off("progress", onProgress);
@@ -99,6 +98,22 @@ jobsRouter.get("/:id/stream", asyncHandler(async (req: Request, res: Response) =
     queueEvents.off("failed", onFailed);
   }
   req.on("close", cleanup);
+
+  // Completion race: a fast job may already be finished before the client
+  // subscribed, so the completed/failed event never replays. Check current
+  // state up front and emit the terminal event immediately if so.
+  const state = await job.getState();
+  if (state === "completed" || state === "failed") {
+    const fresh = await generativeQueue.getJob(job.id!);
+    if (fresh) {
+      const clientJob = await toClientJob(fresh, req.auth!.tenantId);
+      send(clientJob.error ? { type: "error", error: clientJob.error } : { type: "done", job: clientJob });
+    }
+    cleanup();
+    res.end();
+    return;
+  }
+  send({ type: "status", status: "running" });
 }));
 
 async function loadOwnedJob(req: Request, res: Response) {

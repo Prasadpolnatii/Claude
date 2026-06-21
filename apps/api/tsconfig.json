@@ -6,5 +6,6 @@
     "types": ["node"]
   },
   "references": [{ "path": "../../packages/shared" }],
-  "include": ["src", "evals"]
+  "include": ["src", "evals"],
+  "exclude": ["**/*.test.ts"]
 }
