@@ -98,6 +98,63 @@ export function requireStreamToken(req: Request, res: Response<ApiErrorBody>, ne
   }
 }
 
+/**
+ * Alert-stream SSE auth. Like the job-stream token, but scoped to a tenant's
+ * alert feed rather than one job id. Short-lived (60s); the client exchanges its
+ * session JWT for one of these, then opens an EventSource with it in the query.
+ */
+export function signAlertStreamToken(tenantId: string): string {
+  return jwt.sign({ tenantId, purpose: "alerts-sse" }, config.JWT_SECRET, {
+    issuer: config.JWT_ISSUER,
+    algorithm: "HS256",
+    expiresIn: "60s",
+  });
+}
+
+export function requireAlertStreamToken(req: Request, res: Response<ApiErrorBody>, next: NextFunction): void {
+  const token = typeof req.query.t === "string" ? req.query.t : undefined;
+  if (!token) {
+    unauthorized(res, "Missing stream token.");
+    return;
+  }
+  try {
+    const payload = jwt.verify(token, config.JWT_SECRET, {
+      issuer: config.JWT_ISSUER,
+      algorithms: ["HS256"],
+    }) as jwt.JwtPayload;
+
+    if (payload.purpose !== "alerts-sse" || !payload.tenantId) {
+      unauthorized(res, "Not an alert stream token.");
+      return;
+    }
+    req.auth = { tenantId: String(payload.tenantId), userId: "sse", role: "sse" };
+    next();
+  } catch {
+    unauthorized(res, "Invalid or expired stream token.");
+  }
+}
+
+/**
+ * Role gate. Use after `requireAuth` to restrict a route to specific roles
+ * (e.g. `requireRole("admin")` on the audit log). Returns 403 for an
+ * authenticated user whose role isn't permitted.
+ */
+export function requireRole(...roles: string[]) {
+  return (req: Request, res: Response<ApiErrorBody>, next: NextFunction): void => {
+    if (!req.auth) {
+      unauthorized(res, "Authentication required.");
+      return;
+    }
+    if (!roles.includes(req.auth.role)) {
+      res.status(403).json({
+        error: { code: "forbidden", message: `Requires role: ${roles.join(" or ")}.`, retryable: false },
+      });
+      return;
+    }
+    next();
+  };
+}
+
 /** Dev helper — mint a token for the seeded tenant. Never expose in prod. */
 export function signDevToken(tenantId: string, userId: string, role = "engineer"): string {
   return jwt.sign({ tenantId, role }, config.JWT_SECRET, {

@@ -47,6 +47,17 @@ const schema = z.object({
   WEB_ORIGIN: z.string().default("http://localhost:5173"),
 
   TENANT_DAILY_TOKEN_BUDGET: z.coerce.number().default(2_000_000),
+
+  // Real-time alert demo. When on, the API emits synthetic monitoring alerts for
+  // ALERTS_SIMULATE_TENANT so the dashboard's live stream is populated without a
+  // real monitoring pipeline. Disable in production (wire a real producer to the
+  // alerts bus instead).
+  ALERTS_SIMULATE: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((v) => v === "true"),
+  ALERTS_SIMULATE_TENANT: z.string().default("demo-tenant"),
+  ALERTS_SIMULATE_INTERVAL_MS: z.coerce.number().default(20_000),
 });
 
 const parsed = schema.safeParse(process.env);
