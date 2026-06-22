@@ -18,7 +18,7 @@ import { knowledgeRouter } from "./routes/knowledge.js";
 import { auditRouter } from "./routes/audit.js";
 import { dashboardRouter } from "./routes/dashboard.js";
 import { reportsRouter } from "./routes/reports.js";
-import { startAlertSimulator } from "./features/alertsBus.js";
+import { startAlertSimulator } from "./features/alertSimulator.js";
 
 /**
  * API entrypoint. Serves HTTP only; generative work runs in the worker
