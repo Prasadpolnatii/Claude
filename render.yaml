@@ -24,7 +24,10 @@ services:
     region: oregon
     # Deploy from the default branch (render.yaml + the app live here).
     branch: claude/busy-fermat-7inh9k
-    buildCommand: npm install && npm run build:web
+    # NODE_ENV=production (below) makes `npm install` omit devDependencies, but
+    # the web build needs them (vite, typescript, @types/*). --include=dev forces
+    # them in for the build; runtime still runs under NODE_ENV=production.
+    buildCommand: npm install --include=dev && npm run build:web
     # Seed demo data (idempotent reset) then start the API. `;` so the server
     # still boots if seeding fails (e.g. MONGODB_URI not yet set).
     startCommand: npm run seed; npm run start

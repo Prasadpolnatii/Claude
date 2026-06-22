@@ -42,8 +42,11 @@ No terminal commands — it's all dashboard.
    (`ai-ops-dashboard`) and a Key Value/Redis instance (`ai-ops-redis`).
 3. When prompted for the **`MONGODB_URI`** secret, paste the Atlas string from
    step 1. (`JWT_SECRET` is auto-generated; `REDIS_URL` is wired automatically.)
-4. **Apply**. Render builds (`npm install && npm run build:web`) and starts
-   (`npm run seed; npm run start`).
+4. **Apply**. Render builds (`npm install --include=dev && npm run build:web`)
+   and starts (`npm run seed; npm run start`). The `--include=dev` is required
+   because `NODE_ENV=production` otherwise makes `npm install` skip the build
+   tools (`vite`, `typescript`) and the build fails with `TS2688: Cannot find
+   type definition file for 'vite/client'`.
 
 ### 3. Open it
 
@@ -83,9 +86,10 @@ one project.
    - `JWT_SECRET=<any 32+ random chars>`
    - `MONGODB_URI=${{ MongoDB.MONGO_URL }}` (reference the plugin var; append `/ops_copilot` if absent)
    - `REDIS_URL=${{ Redis.REDIS_URL }}`
-4. Set **Build** = `npm install && npm run build:web`, **Start** =
-   `npm run seed; npm run start`. Railway injects `PORT` automatically (the app
-   honors it).
+4. Set **Build** = `npm install --include=dev && npm run build:web`, **Start** =
+   `npm run seed; npm run start` (`--include=dev` because `NODE_ENV=production`
+   would otherwise skip the build tools). Railway injects `PORT` automatically
+   (the app honors it).
 5. Generate a public domain (service → **Settings → Networking → Generate
    Domain**) and open it on your phone.
 
