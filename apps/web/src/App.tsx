@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { currentRole, getToken, setToken } from "./api/client.js";
+import { useEffect, useMemo, useState } from "react";
+import { currentRole, devLogin, getAuthConfig, getToken, setToken } from "./api/client.js";
 import { useTheme } from "./theme.js";
 import { NAV, type Tab } from "./nav.js";
 import { OverviewPage } from "./pages/OverviewPage.js";
@@ -77,12 +77,42 @@ export function App() {
 
 function TokenGate({ onSet }: { onSet: (t: string) => void }) {
   const [v, setV] = useState("");
+  const [devLoginOn, setDevLoginOn] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string>();
+
+  useEffect(() => {
+    getAuthConfig().then((c) => setDevLoginOn(c.devLogin)).catch(() => setDevLoginOn(false));
+  }, []);
+
+  async function demo(role: "admin" | "engineer") {
+    setBusy(true);
+    setErr(undefined);
+    try {
+      onSet(await devLogin(role));
+    } catch {
+      setErr("Demo login failed.");
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="gate">
       <h1>⚙️ AI Operations Dashboard</h1>
+      {devLoginOn && (
+        <div className="gate__demo">
+          <p>Try the live demo — no token needed:</p>
+          <div className="gate__demo-btns">
+            <button disabled={busy} onClick={() => demo("admin")}>Enter demo as Admin</button>
+            <button className="btn-ghost" disabled={busy} onClick={() => demo("engineer")}>Enter as Engineer</button>
+          </div>
+          {err && <p className="error-note" role="alert">{err}</p>}
+          <hr />
+        </div>
+      )}
       <p>
-        Paste a dev JWT printed by <code>npm run seed</code>. The seed prints both an{" "}
-        <strong>admin</strong> token (full access incl. audit log) and an <strong>engineer</strong> token.
+        Or paste a dev JWT printed by <code>npm run seed</code> — an <strong>admin</strong> token
+        (full access incl. audit log) or an <strong>engineer</strong> token.
       </p>
       <textarea value={v} onChange={(e) => setV(e.target.value)} rows={4} placeholder="eyJ…" />
       <button disabled={!v.trim()} onClick={() => onSet(v.trim())}>

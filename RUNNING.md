@@ -23,7 +23,7 @@ an **Express API** (`:4000`), and a **Vite/React web app** (`:5173`).
 ```bash
 git clone https://github.com/Prasadpolnatii/ai-operations-copilot.git
 cd ai-operations-copilot
-git checkout claude/wonderful-allen-6iza46
+git checkout claude/busy-fermat-7inh9k
 ```
 
 ## 3. Configure environment
@@ -168,7 +168,7 @@ ever talks to `:5173`.
 ## 10. Quick reference (TL;DR)
 
 ```bash
-git checkout claude/wonderful-allen-6iza46
+git checkout claude/busy-fermat-7inh9k
 cp .env.example .env
 docker compose up -d
 npm install

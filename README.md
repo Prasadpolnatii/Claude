@@ -62,7 +62,7 @@ infrastructure:
 Run it: `npm run seed` (prints **admin** and **engineer** dev JWTs) → `npm run dev`
 → open the web app and paste a token. The seed populates incidents, application
 health, alerts, queues, and knowledge articles. **Full local setup:
-[RUNNING.md](RUNNING.md).**
+[RUNNING.md](RUNNING.md).** **Deploy a public URL: [DEPLOY.md](DEPLOY.md)** (Render/Railway).
 
 > **LLM provider note:** the dashboard surface is pure data/CRUD and does not add
 > any LLM calls; the existing AI features (summary / SOP search / RCA) keep their
