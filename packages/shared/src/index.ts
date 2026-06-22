@@ -103,3 +103,126 @@ export type JobStreamEvent =
   | { type: "error"; error: ApiError };
 
 export const CONFIDENCE_FLOOR = 0.55;
+
+/* ───────────────────────────────────────────────────────────────────────────
+ * Operations Dashboard domain
+ *
+ * The dashboard surface (incidents, application health, alerts, queues,
+ * knowledge base, audit log) shares these contracts between API and web. All
+ * timestamps are ISO-8601 strings on the wire; ids are stringified Mongo _ids.
+ * ──────────────────────────────────────────────────────────────────────────*/
+
+export type UserRole = "engineer" | "admin";
+
+export type IncidentSeverity = "sev1" | "sev2" | "sev3" | "sev4";
+export type IncidentStatus = "open" | "acknowledged" | "mitigated" | "resolved";
+export type HealthStatus = "healthy" | "degraded" | "down";
+export type AlertSeverity = "critical" | "warning" | "info";
+export type AlertStatus = "firing" | "resolved";
+export type QueueStatus = "healthy" | "warning" | "critical";
+
+export const INCIDENT_SEVERITIES: readonly IncidentSeverity[] = ["sev1", "sev2", "sev3", "sev4"];
+export const INCIDENT_STATUSES: readonly IncidentStatus[] = ["open", "acknowledged", "mitigated", "resolved"];
+
+/** A single entry on an incident's chronological timeline. */
+export interface TimelineEvent {
+  at: string;
+  kind: "detected" | "note" | "ack" | "mitigated" | "resolved" | "status_change" | "alert";
+  message: string;
+  actor?: string;
+}
+
+/** Compact incident shape for the list view. */
+export interface IncidentRow {
+  id: string;
+  title: string;
+  severity: IncidentSeverity;
+  status: IncidentStatus;
+  service: string;
+  acknowledgedBy?: string;
+  startedAt: string;
+  updatedAt: string;
+  resolvedAt?: string;
+}
+
+/** Full incident, including the timeline, for the detail view + PDF report. */
+export interface IncidentDetail extends IncidentRow {
+  summary?: string;
+  logSnippet?: string;
+  timeline: TimelineEvent[];
+}
+
+/** Health snapshot for one application/service, rendered as a card. */
+export interface ApplicationHealth {
+  id: string;
+  name: string;
+  service: string;
+  status: HealthStatus;
+  latencyMsP95: number;
+  errorRatePct: number;
+  uptimePct: number;
+  requestsPerMin: number;
+  updatedAt: string;
+}
+
+/** A monitoring alert. Streamed in real time and listed historically. */
+export interface Alert {
+  id: string;
+  severity: AlertSeverity;
+  status: AlertStatus;
+  title: string;
+  service: string;
+  source: string;
+  value?: string;
+  at: string;
+  resolvedAt?: string;
+}
+
+/** Depth/throughput snapshot for one work queue. `status` is derived. */
+export interface QueueStat {
+  id: string;
+  name: string;
+  depth: number;
+  inFlight: number;
+  ratePerMin: number;
+  oldestAgeSec: number;
+  consumers: number;
+  status: QueueStatus;
+  updatedAt: string;
+}
+
+/** A knowledge-base / runbook article rendered in the viewer. */
+export interface KnowledgeArticle {
+  id: string;
+  title: string;
+  category: string;
+  tags: string[];
+  body: string;
+  updatedAt: string;
+}
+
+/** One immutable audit-log row (who did what, when). Admin-visible. */
+export interface AuditLogEntry {
+  id: string;
+  at: string;
+  actor: string;
+  role: string;
+  action: string;
+  target: string;
+  meta?: Record<string, unknown>;
+}
+
+/** Roll-up counters for the dashboard landing page. */
+export interface DashboardOverview {
+  incidents: { open: number; bySeverity: Record<IncidentSeverity, number> };
+  alerts: { firing: number; bySeverity: Record<AlertSeverity, number> };
+  applications: { total: number; healthy: number; degraded: number; down: number };
+  queues: { total: number; warning: number; critical: number };
+  updatedAt: string;
+}
+
+/** Server-Sent Event payload streamed on GET /api/alerts/stream. */
+export type AlertStreamEvent =
+  | { type: "alert"; alert: Alert }
+  | { type: "resolved"; alert: Alert }
+  | { type: "heartbeat"; at: string };

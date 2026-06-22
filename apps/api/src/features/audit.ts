@@ -1,7 +1,36 @@
 import { config } from "../config.js";
-import { RedactionAudit } from "../models/index.js";
+import { AuditLog, RedactionAudit } from "../models/index.js";
 import { isMongoConnected } from "../db/mongo.js";
 import { redis } from "./redisStore.js";
+
+/**
+ * Operational audit trail — records who did what (incident ack/resolve, alert
+ * resolution, knowledge edits). Distinct from the redaction audit below, which
+ * is a compliance proof that PII was scrubbed. Degrades quietly when Mongo is
+ * down: the action still happened, only the audit row is skipped.
+ */
+export function recordAudit(input: {
+  tenantId: string;
+  actor: string;
+  role?: string;
+  action: string;
+  target?: string;
+  meta?: Record<string, unknown>;
+}): void {
+  if (!isMongoConnected()) {
+    console.warn(`[audit] mongo down — audit row skipped for action ${input.action}`);
+    return;
+  }
+  void AuditLog.create({
+    tenantId: input.tenantId,
+    actor: input.actor,
+    role: input.role ?? "",
+    action: input.action,
+    target: input.target ?? "",
+    meta: input.meta,
+    at: new Date(),
+  }).catch((err) => console.error("[audit] failed to write audit log", err));
+}
 
 /**
  * Audit + budget guardrails.

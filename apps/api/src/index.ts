@@ -2,7 +2,7 @@ import express from "express";
 import cors from "cors";
 import { config } from "./config.js";
 import { mongoState, warmConnectMongo } from "./db/mongo.js";
-import { requireAuth } from "./auth/jwt.js";
+import { requireAuth, requireRole } from "./auth/jwt.js";
 import { requireMongo } from "./middleware/requireMongo.js";
 import { globalLimiter } from "./middleware/rateLimit.js";
 import { errorHandler, notFound } from "./middleware/error.js";
@@ -10,6 +10,15 @@ import { jobsRouter } from "./routes/jobs.js";
 import { ticketsRouter } from "./routes/tickets.js";
 import { sopsRouter } from "./routes/sops.js";
 import { rcaRouter } from "./routes/rca.js";
+import { incidentsRouter } from "./routes/incidents.js";
+import { applicationsRouter } from "./routes/applications.js";
+import { alertsRouter } from "./routes/alerts.js";
+import { queuesRouter } from "./routes/queues.js";
+import { knowledgeRouter } from "./routes/knowledge.js";
+import { auditRouter } from "./routes/audit.js";
+import { dashboardRouter } from "./routes/dashboard.js";
+import { reportsRouter } from "./routes/reports.js";
+import { startAlertSimulator } from "./features/alertsBus.js";
 
 /**
  * API entrypoint. Serves HTTP only; generative work runs in the worker
@@ -50,6 +59,20 @@ function main() {
   // Mongo per-route inside the router.
   app.use("/api/rca", requireAuth, rcaRouter);
 
+  // ── Operations dashboard ───────────────────────────────────────────────────
+  // All Mongo-backed read/write surfaces. Each is tenant-scoped via requireAuth.
+  app.use("/api/dashboard", requireAuth, requireMongo, dashboardRouter);
+  app.use("/api/incidents", requireAuth, requireMongo, incidentsRouter);
+  app.use("/api/applications", requireAuth, requireMongo, applicationsRouter);
+  app.use("/api/queues", requireAuth, requireMongo, queuesRouter);
+  app.use("/api/knowledge", requireAuth, requireMongo, knowledgeRouter);
+  app.use("/api/reports", requireAuth, requireMongo, reportsRouter);
+  // Audit log is admin-only (RBAC).
+  app.use("/api/audit", requireAuth, requireRole("admin"), requireMongo, auditRouter);
+  // Alerts mix header-auth (list/resolve) with a short-lived stream token (SSE),
+  // so auth is applied per-route inside the router — like jobs.
+  app.use("/api/alerts", alertsRouter);
+
   app.use(notFound);
   app.use(errorHandler);
 
@@ -60,6 +83,10 @@ function main() {
 
   // Best-effort warm connect — never blocks boot, never crashes.
   warmConnectMongo("boot");
+
+  // Real-time alert producer for the demo tenant (no-op when disabled or when
+  // Mongo is down). A real deployment wires a monitoring webhook to the bus.
+  startAlertSimulator();
 }
 
 main();
