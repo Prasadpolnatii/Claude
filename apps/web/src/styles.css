@@ -307,3 +307,10 @@ h2, h3, h4 { color: var(--text); }
   .print-area section { break-inside: avoid; }
   @page { margin: 16mm; }
 }
+
+/* Gate: demo login */
+.gate__demo { margin-bottom: 8px; }
+.gate__demo-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.gate__demo-btns button { background: var(--accent); color: #fff; border: none; padding: 10px 16px; border-radius: 8px; font: inherit; }
+.gate__demo-btns button.btn-ghost { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); }
+.gate__demo hr { border: none; border-top: 1px solid var(--line); margin: 16px 0; }

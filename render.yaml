@@ -1,0 +1,70 @@
+# Render Blueprint — one deploy of the AI Operations Dashboard.
+#
+# Provisions:
+#   • a Node web service that serves the API + the built React SPA (same origin)
+#     and runs the BullMQ worker in-process (INLINE_WORKER) — the whole app on
+#     one free instance.
+#   • a managed Key Value (Redis) instance for the job queue / rate limits.
+#
+# MongoDB is NOT a Render product — use a free MongoDB Atlas M0 cluster and paste
+# its connection string into MONGODB_URI when the dashboard prompts (sync: false).
+#
+# Deploy: Render Dashboard → New → Blueprint → pick this repo/branch → set
+# MONGODB_URI → Apply. No terminal commands needed. The public URL is the web
+# service's https://<name>.onrender.com.
+#
+# NOTE: ENABLE_DEV_LOGIN=true exposes a one-tap demo login (admin/engineer) so
+# the URL is usable from a phone. Turn it OFF for any real multi-user use.
+
+services:
+  - type: web
+    name: ai-ops-dashboard
+    runtime: node
+    plan: free
+    region: oregon
+    # Pin to the feature branch; change to your default branch after merge.
+    branch: claude/wonderful-allen-6iza46
+    buildCommand: npm install && npm run build:web
+    # Seed demo data (idempotent reset) then start the API. `;` so the server
+    # still boots if seeding fails (e.g. MONGODB_URI not yet set).
+    startCommand: npm run seed; npm run start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SERVE_WEB
+        value: "true"
+      - key: INLINE_WORKER
+        value: "true"
+      - key: ENABLE_DEV_LOGIN
+        value: "true"
+      - key: ALERTS_SIMULATE
+        value: "true"
+      - key: LLM_MODE
+        value: mock
+      - key: WEB_ORIGIN
+        value: "*"
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_ISSUER
+        value: ops-copilot
+      - key: VECTOR_INDEX_NAME
+        value: sop_vector_index
+      # Paste your MongoDB Atlas connection string in the dashboard.
+      - key: MONGODB_URI
+        sync: false
+      # Internal Redis connection string from the Key Value service below.
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: ai-ops-redis
+          property: connectionString
+
+  # Managed Redis. BullMQ requires the noeviction policy.
+  - type: keyvalue
+    name: ai-ops-redis
+    plan: free
+    region: oregon
+    maxmemoryPolicy: noeviction
+    ipAllowList: [] # internal-only (no public access)

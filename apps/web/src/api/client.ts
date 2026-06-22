@@ -260,6 +260,27 @@ export function currentRole(): UserRole {
   return decodeToken().role === "admin" ? "admin" : "engineer";
 }
 
+/** Whether the deployment exposes the gated demo login. */
+export async function getAuthConfig(): Promise<{ devLogin: boolean }> {
+  try {
+    const res = await fetch("/api/auth/config");
+    if (!res.ok) return { devLogin: false };
+    return (await res.json()) as { devLogin: boolean };
+  } catch {
+    return { devLogin: false };
+  }
+}
+
+/** Mint a demo token (admin/engineer) when dev-login is enabled. */
+export async function devLogin(role: "admin" | "engineer"): Promise<string> {
+  const res = await fetch("/api/auth/dev-login", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ role }),
+  });
+  return (await unwrap<{ token: string }>(res)).token;
+}
+
 export async function getOverview(): Promise<DashboardOverview> {
   const res = await fetch("/api/dashboard", { headers: authHeaders() });
   return (await unwrap<{ overview: DashboardOverview }>(res)).overview;

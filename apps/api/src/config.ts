@@ -43,10 +43,21 @@ const schema = z.object({
   JWT_SECRET: z.string().min(16, "JWT_SECRET must be at least 16 chars"),
   JWT_ISSUER: z.string().default("ops-copilot"),
 
-  API_PORT: z.coerce.number().default(4000),
+  // Hosts (Render/Railway/Heroku) inject the bind port as $PORT. Honor it, then
+  // an explicit API_PORT, then 4000 for local dev.
+  API_PORT: z.coerce.number().default(Number(process.env.PORT) || 4000),
   WEB_ORIGIN: z.string().default("http://localhost:5173"),
 
   TENANT_DAILY_TOKEN_BUDGET: z.coerce.number().default(2_000_000),
+
+  // Demo convenience: when true, POST /api/auth/dev-login mints a tenant token
+  // (admin or engineer) for the demo tenant — so a public demo is usable from a
+  // phone without pasting a JWT. NEVER enable in a real multi-user deployment;
+  // it hands out admin tokens to anyone. Default off.
+  ENABLE_DEV_LOGIN: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
 
   // Real-time alert demo. When on, the API emits synthetic monitoring alerts for
   // ALERTS_SIMULATE_TENANT so the dashboard's live stream is populated without a
@@ -58,6 +69,20 @@ const schema = z.object({
     .transform((v) => v === "true"),
   ALERTS_SIMULATE_TENANT: z.string().default("demo-tenant"),
   ALERTS_SIMULATE_INTERVAL_MS: z.coerce.number().default(20_000),
+
+  // Production single-service deploy knobs (see render.yaml / RUNNING.md):
+  //  - SERVE_WEB: API also serves the built React SPA from apps/web/dist
+  //    (same-origin → no CORS, SSE works). Set true in production.
+  //  - INLINE_WORKER: run the BullMQ worker inside the API process instead of a
+  //    separate service — lets the whole app run on one free instance.
+  SERVE_WEB: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
+  INLINE_WORKER: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
 });
 
 const parsed = schema.safeParse(process.env);

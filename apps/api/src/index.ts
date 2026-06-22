@@ -1,5 +1,8 @@
 import express from "express";
 import cors from "cors";
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { config } from "./config.js";
 import { mongoState, warmConnectMongo } from "./db/mongo.js";
 import { requireAuth, requireRole } from "./auth/jwt.js";
@@ -18,6 +21,7 @@ import { knowledgeRouter } from "./routes/knowledge.js";
 import { auditRouter } from "./routes/audit.js";
 import { dashboardRouter } from "./routes/dashboard.js";
 import { reportsRouter } from "./routes/reports.js";
+import { authRouter } from "./routes/auth.js";
 import { startAlertSimulator } from "./features/alertSimulator.js";
 
 /**
@@ -49,6 +53,8 @@ function main() {
   // Jobs are Redis-only. Auth is applied per-route inside the router: header
   // bearer for submit/poll/stream-token, a short-lived stream token for the SSE
   // route (EventSource can't send headers).
+  // Demo login (gated by ENABLE_DEV_LOGIN). No auth — it issues auth.
+  app.use("/api/auth", authRouter);
   app.use("/api/jobs", jobsRouter);
   // Tickets need Mongo — gated so they 503 cleanly when it's down.
   app.use("/api/tickets", requireAuth, requireMongo, ticketsRouter);
@@ -73,12 +79,27 @@ function main() {
   // so auth is applied per-route inside the router — like jobs.
   app.use("/api/alerts", alertsRouter);
 
+  // ── Static SPA (production single-origin deploy) ────────────────────────────
+  // When SERVE_WEB=true, the API serves the built React app from apps/web/dist
+  // and falls back to index.html for client-side routes. Same-origin → the SPA's
+  // /api fetches and SSE work with no CORS. `notFound` still 404s unknown /api/*.
+  if (config.SERVE_WEB) {
+    const webDist = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "web", "dist");
+    if (existsSync(webDist)) {
+      app.use(express.static(webDist));
+      app.get(/^\/(?!api\/).*/, (_req, res) => res.sendFile(join(webDist, "index.html")));
+      console.log(`[api] serving SPA from ${webDist}`);
+    } else {
+      console.warn(`[api] SERVE_WEB=true but ${webDist} is missing — run the web build first.`);
+    }
+  }
+
   app.use(notFound);
   app.use(errorHandler);
 
   app.listen(config.API_PORT, () => {
     console.log(`[api] listening on http://localhost:${config.API_PORT} (LLM_MODE=${config.LLM_MODE})`);
-    console.log(`[api] remember to start the worker: npm run worker`);
+    if (!config.INLINE_WORKER) console.log(`[api] remember to start the worker: npm run worker`);
   });
 
   // Best-effort warm connect — never blocks boot, never crashes.
@@ -87,6 +108,12 @@ function main() {
   // Real-time alert producer for the demo tenant (no-op when disabled or when
   // Mongo is down). A real deployment wires a monitoring webhook to the bus.
   startAlertSimulator();
+
+  // Single-service deploys run the BullMQ worker in-process (importing it starts
+  // the Worker). Otherwise it runs as its own service (`npm run worker`).
+  if (config.INLINE_WORKER) {
+    void import("./queue/worker.js").then(() => console.log("[api] inline worker started"));
+  }
 }
 
 main();

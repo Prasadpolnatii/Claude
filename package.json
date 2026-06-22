@@ -16,6 +16,10 @@
     "dev:api": "npm -w @ops-copilot/api run dev",
     "dev:web": "npm -w @ops-copilot/web run dev",
     "worker": "npm -w @ops-copilot/api run worker",
+    "build:web": "npm -w @ops-copilot/web run build",
+    "build": "npm run build:web",
+    "start": "npm -w @ops-copilot/api run start",
+    "start:worker": "npm -w @ops-copilot/api run start:worker",
     "seed": "npm -w @ops-copilot/api run seed",
     "test": "npm -w @ops-copilot/api run test",
     "typecheck": "tsc -b --pretty"
