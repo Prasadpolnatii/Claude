@@ -41,6 +41,32 @@ integration tests against a real database and **0 dependency vulnerabilities**.
 Every output streams over SSE, shows **citations + a confidence score**, and is
 **editable by a human before save**.
 
+### Operations Dashboard
+
+A full on-call dashboard sits on top of the same multi-tenant API, auth, and SSE
+infrastructure:
+
+| Feature | What it does |
+|---------|-------------|
+| 🚨 **Incidents** | List with **severity (SEV1–4) + status filters**, detail view with a chronological **timeline**, acknowledge / resolve / add-note (all audited). |
+| 💓 **Application health** | Per-service health **cards** (p95 latency, error rate, uptime, req/min) with status derived from live SLO numbers. |
+| 📟 **Real-time alerts** | Live alert feed over **SSE** (firing/resolved), manual resolve. A pub/sub bus accepts alerts from a monitoring webhook (or the built-in demo simulator). |
+| 📊 **Queue monitoring** | Depth / in-flight / throughput / oldest-item age per queue, including the **live BullMQ** generative queue read straight from Redis. |
+| 📖 **Knowledge base** | Searchable runbook/article viewer (dependency-free markdown). |
+| 🌓 **Dark mode** | Persisted dark/light theme toggle. |
+| 🔐 **Role-based access** | `engineer` vs `admin`; the **audit log** is admin-only, enforced server-side (`requireRole`) and hidden in the UI. |
+| 🧾 **Audit log** | Immutable who-did-what trail for every mutating action (admin-only). |
+| 📱 **Responsive UI** | Sidebar collapses to a top nav; tables scroll on narrow screens. |
+| ⭳ **Export to PDF** | Incident reports render to a print-optimized layout and export via the browser's native print-to-PDF (timeline + related alerts + MTTR). |
+
+Run it: `npm run seed` (prints **admin** and **engineer** dev JWTs) → `npm run dev`
+→ open the web app and paste a token. The seed populates incidents, application
+health, alerts, queues, and knowledge articles.
+
+> **LLM provider note:** the dashboard surface is pure data/CRUD and does not add
+> any LLM calls; the existing AI features (summary / SOP search / RCA) keep their
+> original OpenAI-or-mock provider untouched.
+
 ## Architecture diagram
 
 ```mermaid
