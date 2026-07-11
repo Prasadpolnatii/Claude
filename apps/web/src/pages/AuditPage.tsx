@@ -1,6 +1,10 @@
+import { RefreshCw, ShieldAlert } from "lucide-react";
 import { listAudit } from "../api/client.js";
 import { useAsync } from "../hooks/useAsync.js";
 import { timeAgo } from "../components/badges.js";
+import { ErrorNote } from "../components/ui/ErrorNote.js";
+import { EmptyState } from "../components/ui/EmptyState.js";
+import { TableSkeleton } from "../components/ui/Skeleton.js";
 
 /**
  * Audit log (admin only — the API also enforces this with requireRole). Shows
@@ -13,18 +17,19 @@ export function AuditPage() {
     <div className="page">
       <div className="page__head">
         <h2>Audit log</h2>
-        <button className="btn-ghost" onClick={reload}>↻ Refresh</button>
+        <button className="btn-ghost" onClick={reload}><RefreshCw size={14} /> Refresh</button>
       </div>
 
       {error && (
-        <div className="error-note" role="alert">
+        <ErrorNote>
           {error}
           {error.toLowerCase().includes("role") && " — the audit log is restricted to admins."}
-        </div>
+        </ErrorNote>
       )}
-      {loading && !data && <p className="muted">Loading…</p>}
 
-      {data && (
+      {loading && !data && <div className="table-wrap"><TableSkeleton rows={6} cols={6} /></div>}
+
+      {data && data.length > 0 && (
         <div className="table-wrap">
           <table className="table">
             <thead>
@@ -41,10 +46,13 @@ export function AuditPage() {
                   <td className="muted small">{e.meta ? JSON.stringify(e.meta) : "—"}</td>
                 </tr>
               ))}
-              {data.length === 0 && <tr><td colSpan={6} className="muted">No audit entries yet.</td></tr>}
             </tbody>
           </table>
         </div>
+      )}
+
+      {data && data.length === 0 && (
+        <EmptyState icon={<ShieldAlert size={20} />} title="No audit entries yet" description="Actions taken across the dashboard will appear here." />
       )}
     </div>
   );

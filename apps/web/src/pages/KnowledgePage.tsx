@@ -1,8 +1,14 @@
 import { useEffect, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import { BookOpen, Search } from "lucide-react";
 import type { KnowledgeArticle } from "@ops-copilot/shared";
 import { listKnowledge } from "../api/client.js";
 import { useAsync } from "../hooks/useAsync.js";
 import { Markdownish } from "../components/Markdownish.js";
+import { ErrorNote } from "../components/ui/ErrorNote.js";
+import { EmptyState } from "../components/ui/EmptyState.js";
+import { ListRowSkeleton } from "../components/ui/Skeleton.js";
+import { fade } from "../components/ui/motion.js";
 
 /** Knowledge base: searchable list on the left, article viewer on the right. */
 export function KnowledgePage() {
@@ -29,15 +35,19 @@ export function KnowledgePage() {
           }}
         >
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search articles…" aria-label="Search knowledge base" />
-          <button className="btn">Search</button>
+          <button className="btn"><Search size={14} /> Search</button>
         </form>
       </div>
 
-      {error && <div className="error-note" role="alert">{error}</div>}
+      {error && <ErrorNote>{error}</ErrorNote>}
 
       <div className="split">
         <aside className="list-pane">
-          {loading && !data && <p className="muted">Loading…</p>}
+          {loading && !data && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {Array.from({ length: 5 }).map((_, i) => <ListRowSkeleton key={i} />)}
+            </div>
+          )}
           <ul className="article-list">
             {data?.map((a) => (
               <li key={a.id}>
@@ -47,25 +57,29 @@ export function KnowledgePage() {
                 </button>
               </li>
             ))}
-            {data && data.length === 0 && <li className="muted">No articles match.</li>}
           </ul>
+          {data && data.length === 0 && (
+            <EmptyState icon={<Search size={20} />} title="No articles match" description="Try a different search term." />
+          )}
         </aside>
 
         <article className="viewer">
-          {selected ? (
-            <>
-              <h3>{selected.title}</h3>
-              <div className="tags">
-                <span className="badge cat">{selected.category}</span>
-                {selected.tags.map((t) => (
-                  <span key={t} className="badge tag">#{t}</span>
-                ))}
-              </div>
-              <Markdownish body={selected.body} />
-            </>
-          ) : (
-            <p className="muted">Select an article to read it.</p>
-          )}
+          <AnimatePresence mode="wait">
+            {selected ? (
+              <motion.div key={selected.id} variants={fade} initial="hidden" animate="show" exit="exit">
+                <h3>{selected.title}</h3>
+                <div className="tags">
+                  <span className="badge cat">{selected.category}</span>
+                  {selected.tags.map((t) => (
+                    <span key={t} className="badge tag">#{t}</span>
+                  ))}
+                </div>
+                <Markdownish body={selected.body} />
+              </motion.div>
+            ) : (
+              <EmptyState icon={<BookOpen size={20} />} title="Select an article" description="Pick one from the list to read it." />
+            )}
+          </AnimatePresence>
         </article>
       </div>
     </div>

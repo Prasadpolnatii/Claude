@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import { BellOff, CheckCircle2 } from "lucide-react";
 import type { Alert } from "@ops-copilot/shared";
 import { listAlerts, resolveAlert, streamAlerts, ApiCallError } from "../api/client.js";
 import { AlertSeverityBadge, timeAgo } from "../components/badges.js";
+import { ErrorNote } from "../components/ui/ErrorNote.js";
+import { EmptyState } from "../components/ui/EmptyState.js";
+import { ListRowSkeleton } from "../components/ui/Skeleton.js";
+import { arriveTop } from "../components/ui/motion.js";
 
 type Filter = "all" | "firing" | "resolved";
 
@@ -12,6 +18,7 @@ type Filter = "all" | "firing" | "resolved";
  */
 export function AlertsPage() {
   const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<Filter>("all");
   const [error, setError] = useState<string>();
   const [live, setLive] = useState(false);
@@ -31,7 +38,8 @@ export function AlertsPage() {
     let cancelled = false;
     listAlerts({})
       .then((a) => !cancelled && setAlerts(a))
-      .catch((e) => !cancelled && setError(e instanceof ApiCallError ? e.message : String(e)));
+      .catch((e) => !cancelled && setError(e instanceof ApiCallError ? e.message : String(e)))
+      .finally(() => !cancelled && setLoading(false));
 
     streamAlerts({
       onAlert: (a) => upsertRef.current(a),
@@ -69,45 +77,60 @@ export function AlertsPage() {
     <div className="page">
       <div className="page__head">
         <h2>
-          Alerts{" "}
-          <span className={`live ${live ? "is-live" : ""}`} title={live ? "Live stream connected" : "Stream offline"}>
-            ● {live ? "LIVE" : "offline"}
-          </span>
+          Alerts <span className={`live ${live ? "is-live" : ""}`} title={live ? "Live stream connected" : "Stream offline"}>{live ? "LIVE" : "offline"}</span>
         </h2>
         <div className="filter-group" role="group" aria-label="Filter alerts">
           {(["all", "firing", "resolved"] as Filter[]).map((f) => (
-            <button key={f} className={filter === f ? "chip active" : "chip"} onClick={() => setFilter(f)}>
+            <button key={f} className={filter === f ? "chip active" : "chip"} aria-pressed={filter === f} onClick={() => setFilter(f)}>
               {f}
             </button>
           ))}
         </div>
       </div>
 
-      {error && <div className="error-note" role="alert">{error}</div>}
+      {error && <ErrorNote>{error}</ErrorNote>}
 
-      <ul className="alert-list" aria-live="polite">
-        {shown.map((a) => (
-          <li key={a.id} className={`alert-row alert-row--${a.severity} ${a.status === "resolved" ? "is-resolved" : ""}`}>
-            <AlertSeverityBadge severity={a.severity} />
-            <div className="alert-row__main">
-              <strong>{a.title}</strong>
-              <span className="muted small">
-                {a.service} · {a.source}
-                {a.value ? ` · ${a.value}` : ""}
-              </span>
-            </div>
-            <span className="muted small">{timeAgo(a.at)}</span>
-            {a.status === "firing" ? (
-              <button className="btn-sm" disabled={resolving === a.id} onClick={() => onResolve(a.id)}>
-                {resolving === a.id ? "…" : "Resolve"}
-              </button>
-            ) : (
-              <span className="badge st st--resolved">resolved</span>
-            )}
-          </li>
-        ))}
-        {shown.length === 0 && <li className="muted">No alerts in this view.</li>}
-      </ul>
+      {loading ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {Array.from({ length: 4 }).map((_, i) => <ListRowSkeleton key={i} />)}
+        </div>
+      ) : (
+        <ul className="alert-list" aria-live="polite">
+          <AnimatePresence initial={false}>
+            {shown.map((a) => (
+              <motion.li
+                key={a.id}
+                layout
+                variants={arriveTop}
+                initial="hidden"
+                animate="show"
+                exit="exit"
+                className={`alert-row alert-row--${a.severity} ${a.status === "resolved" ? "is-resolved" : ""}`}
+              >
+                <AlertSeverityBadge severity={a.severity} />
+                <div className="alert-row__main">
+                  <strong>{a.title}</strong>
+                  <span className="muted small">
+                    {a.service} · {a.source}
+                    {a.value ? ` · ${a.value}` : ""}
+                  </span>
+                </div>
+                <span className="muted small">{timeAgo(a.at)}</span>
+                {a.status === "firing" ? (
+                  <button className="btn-sm" disabled={resolving === a.id} onClick={() => onResolve(a.id)}>
+                    {resolving === a.id ? "…" : "Resolve"}
+                  </button>
+                ) : (
+                  <span className="badge st st--resolved"><CheckCircle2 size={11} /> resolved</span>
+                )}
+              </motion.li>
+            ))}
+          </AnimatePresence>
+        </ul>
+      )}
+      {!loading && shown.length === 0 && (
+        <EmptyState icon={<BellOff size={20} />} title="No alerts in this view" description="Switch filters, or wait for the live feed." />
+      )}
     </div>
   );
 }

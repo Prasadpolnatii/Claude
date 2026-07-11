@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import { Check, CheckCheck, Download, Inbox, RefreshCw, Send } from "lucide-react";
 import type { IncidentDetail, IncidentSeverity, IncidentStatus, UserRole } from "@ops-copilot/shared";
 import { INCIDENT_SEVERITIES, INCIDENT_STATUSES } from "@ops-copilot/shared";
 import {
@@ -14,6 +16,10 @@ import {
 import { useAsync } from "../hooks/useAsync.js";
 import { IncidentStatusBadge, SeverityBadge, timeAgo } from "../components/badges.js";
 import { IncidentReportPrint } from "../components/IncidentReportPrint.js";
+import { ErrorNote } from "../components/ui/ErrorNote.js";
+import { EmptyState } from "../components/ui/EmptyState.js";
+import { ListRowSkeleton } from "../components/ui/Skeleton.js";
+import { fade, listItem } from "../components/ui/motion.js";
 
 /**
  * Incident list with severity/status filters and a detail panel: full timeline,
@@ -51,60 +57,71 @@ export function IncidentsPage({ role }: { role: UserRole }) {
 
       <div className="page__head">
         <h2>Incidents</h2>
-        <button className="btn-ghost" onClick={reload}>↻ Refresh</button>
+        <button className="btn-ghost" onClick={reload}><RefreshCw size={14} /> Refresh</button>
       </div>
 
       <div className="filters">
         <div className="filter-group" role="group" aria-label="Filter by severity">
           {INCIDENT_SEVERITIES.map((s) => (
-            <button key={s} className={sev.has(s) ? "chip active" : "chip"} onClick={() => toggle(sev, setSev, s)}>
+            <button key={s} className={sev.has(s) ? "chip active" : "chip"} aria-pressed={sev.has(s)} onClick={() => toggle(sev, setSev, s)}>
               {s.toUpperCase()}
             </button>
           ))}
         </div>
         <div className="filter-group" role="group" aria-label="Filter by status">
           {INCIDENT_STATUSES.map((s) => (
-            <button key={s} className={status.has(s) ? "chip active" : "chip"} onClick={() => toggle(status, setStatus, s)}>
+            <button key={s} className={status.has(s) ? "chip active" : "chip"} aria-pressed={status.has(s)} onClick={() => toggle(status, setStatus, s)}>
               {s}
             </button>
           ))}
         </div>
       </div>
 
-      {error && <div className="error-note" role="alert">{error}</div>}
+      {error && <ErrorNote>{error}</ErrorNote>}
 
       <div className="split">
         <aside className="list-pane">
-          {loading && !data && <p className="muted">Loading…</p>}
+          {loading && !data && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {Array.from({ length: 5 }).map((_, i) => <ListRowSkeleton key={i} />)}
+            </div>
+          )}
           <ul className="incident-list">
-            {data?.map((i) => (
-              <li key={i.id}>
-                <button className={selectedId === i.id ? "active" : ""} onClick={() => setSelectedId(i.id)}>
-                  <div className="incident-list__top">
-                    <SeverityBadge severity={i.severity} />
-                    <IncidentStatusBadge status={i.status} />
-                  </div>
-                  <strong>{i.title}</strong>
-                  <span className="muted small">{i.service} · {timeAgo(i.startedAt)}</span>
-                </button>
-              </li>
-            ))}
-            {data && data.length === 0 && <li className="muted">No incidents match the filters.</li>}
+            <AnimatePresence initial={false}>
+              {data?.map((i) => (
+                <motion.li key={i.id} layout variants={listItem} initial="hidden" animate="show" exit="exit">
+                  <button className={selectedId === i.id ? "active" : ""} onClick={() => setSelectedId(i.id)}>
+                    <div className="incident-list__top">
+                      <SeverityBadge severity={i.severity} />
+                      <IncidentStatusBadge status={i.status} />
+                    </div>
+                    <strong>{i.title}</strong>
+                    <span className="muted small">{i.service} · {timeAgo(i.startedAt)}</span>
+                  </button>
+                </motion.li>
+              ))}
+            </AnimatePresence>
           </ul>
+          {data && data.length === 0 && (
+            <EmptyState icon={<Inbox size={20} />} title="No incidents match" description="Try clearing a filter to widen the results." />
+          )}
         </aside>
 
         <div className="detail-pane">
-          {selectedId ? (
-            <IncidentDetailView
-              key={selectedId}
-              id={selectedId}
-              role={role}
-              onChanged={reload}
-              onExport={async (id) => setReport(await getIncidentReport(id))}
-            />
-          ) : (
-            <p className="muted">Select an incident.</p>
-          )}
+          <AnimatePresence mode="wait">
+            {selectedId ? (
+              <motion.div key={selectedId} variants={fade} initial="hidden" animate="show" exit="exit">
+                <IncidentDetailView
+                  id={selectedId}
+                  role={role}
+                  onChanged={reload}
+                  onExport={async (id) => setReport(await getIncidentReport(id))}
+                />
+              </motion.div>
+            ) : (
+              <EmptyState icon={<Inbox size={20} />} title="Select an incident" description="Pick one from the list to see its timeline." />
+            )}
+          </AnimatePresence>
         </div>
       </div>
     </div>
@@ -152,8 +169,8 @@ function IncidentDetailView({
     }
   }
 
-  if (error) return <div className="error-note" role="alert">{error}</div>;
-  if (!incident) return <p className="muted">Loading…</p>;
+  if (error) return <ErrorNote>{error}</ErrorNote>;
+  if (!incident) return <ListRowSkeleton />;
 
   const canEdit = role === "engineer" || role === "admin"; // both operate incidents
   const isResolved = incident.status === "resolved";
@@ -175,10 +192,10 @@ function IncidentDetailView({
 
       <div className="incident-detail__actions">
         {canEdit && incident.status === "open" && (
-          <button className="btn" disabled={busy} onClick={() => act(() => ackIncident(id))}>Acknowledge</button>
+          <button className="btn" disabled={busy} onClick={() => act(() => ackIncident(id))}><Check size={14} /> Acknowledge</button>
         )}
         {canEdit && !isResolved && (
-          <button className="btn" disabled={busy} onClick={() => act(() => resolveIncident(id))}>Resolve</button>
+          <button className="btn" disabled={busy} onClick={() => act(() => resolveIncident(id))}><CheckCheck size={14} /> Resolve</button>
         )}
         <button
           className="btn-ghost"
@@ -194,7 +211,7 @@ function IncidentDetailView({
             }
           }}
         >
-          {exporting ? "Preparing…" : "⭳ Export PDF"}
+          <Download size={14} /> {exporting ? "Preparing…" : "Export PDF"}
         </button>
       </div>
 
@@ -222,7 +239,7 @@ function IncidentDetailView({
           }}
         >
           <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Add a timeline note…" aria-label="Add note" />
-          <button className="btn" disabled={busy || !note.trim()}>Add note</button>
+          <button className="btn" disabled={busy || !note.trim()}><Send size={14} /> Add note</button>
         </form>
       )}
     </div>
