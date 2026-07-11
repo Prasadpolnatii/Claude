@@ -109,7 +109,7 @@ export function EditableRca({ result, jobId, incidentId }: Props) {
       </div>
       {error && <ErrorNote>{error}</ErrorNote>}
       {saved && (
-        <motion.p className="muted" role="status" variants={fadeUp} initial="hidden" animate="show" style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <motion.p className="muted saved-note" role="status" variants={fadeUp} initial="hidden" animate="show">
           <CheckCircle2 size={14} className="ok" /> Saved {new Date(saved.updatedAt).toLocaleTimeString()} {saved.editedByHuman ? "(human-edited)" : "(accepted as drafted)"}
         </motion.p>
       )}

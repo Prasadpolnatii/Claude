@@ -15,6 +15,7 @@ import {
   Siren,
   Sparkles,
   Sun,
+  type LucideIcon,
 } from "lucide-react";
 import { currentRole, devLogin, getAuthConfig, getToken, setToken } from "./api/client.js";
 import { useTheme } from "./theme.js";
@@ -32,7 +33,7 @@ import { AuditPage } from "./pages/AuditPage.js";
 import { SopSearch } from "./pages/SopSearch.js";
 import { RcaPage } from "./pages/RcaPage.js";
 
-const NAV_ICONS: Record<Tab, typeof LayoutDashboard> = {
+const NAV_ICONS: Record<Tab, LucideIcon> = {
   overview: LayoutDashboard,
   incidents: Siren,
   alerts: Bell,
@@ -109,7 +110,7 @@ export function App() {
                   animate={{ opacity: 1, rotate: 0, scale: 1 }}
                   exit={{ opacity: 0, rotate: 60, scale: 0.6 }}
                   transition={{ duration: 0.22, ease: EASE_OUT }}
-                  style={{ display: "flex" }}
+                  className="icon-swap"
                 >
                   {theme === "dark" ? <Sun size={17} /> : <Moon size={17} />}
                 </motion.span>
@@ -171,7 +172,7 @@ function TokenGate({ onSet }: { onSet: (t: string) => void }) {
 
         {devLoginOn && (
           <div className="gate__demo">
-            <p className="muted small" style={{ marginTop: 20, marginBottom: 10 }}>Try the live demo — no token needed:</p>
+            <p className="muted small gate__demo-intro">Try the live demo — no token needed:</p>
             <div className="gate__demo-btns">
               <button className="btn" disabled={busy} onClick={() => demo("admin")}>Enter demo as Admin</button>
               <button className="btn-ghost" disabled={busy} onClick={() => demo("engineer")}>Enter as Engineer</button>

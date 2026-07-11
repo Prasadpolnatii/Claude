@@ -58,8 +58,8 @@ export function RcaPage() {
           )}
 
           {rca.error && (
-            <ErrorNote title={rca.error.code}>
-              {rca.error.message}
+            <ErrorNote>
+              <code>{rca.error.code}</code> — {rca.error.message}
               {rca.error.retryable && <> <button className="link" onClick={run}>Retry</button></>}
             </ErrorNote>
           )}

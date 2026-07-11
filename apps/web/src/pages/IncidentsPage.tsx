@@ -82,7 +82,7 @@ export function IncidentsPage({ role }: { role: UserRole }) {
       <div className="split">
         <aside className="list-pane">
           {loading && !data && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <div className="skeleton-stack">
               {Array.from({ length: 5 }).map((_, i) => <ListRowSkeleton key={i} />)}
             </div>
           )}

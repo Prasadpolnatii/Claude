@@ -1,5 +1,6 @@
 import { motion } from "framer-motion";
 import { RefreshCw, ServerOff } from "lucide-react";
+import type { HealthStatus } from "@ops-copilot/shared";
 import { listApplications } from "../api/client.js";
 import { useAsync } from "../hooks/useAsync.js";
 import { HealthDot, timeAgo } from "../components/badges.js";
@@ -9,7 +10,7 @@ import { CardSkeleton } from "../components/ui/Skeleton.js";
 import { Meter, RingGauge } from "../components/ui/Meter.js";
 import { fadeUp, staggerContainer } from "../components/ui/motion.js";
 
-const ringTone = (status: "healthy" | "degraded" | "down") => (status === "healthy" ? "ok" : status === "degraded" ? "warn" : "danger");
+const ringTone = (status: HealthStatus) => (status === "healthy" ? "ok" : status === "degraded" ? "warn" : "danger");
 const errorTone = (pct: number) => (pct < 1 ? "ok" : pct < 5 ? "warn" : "danger");
 
 /** Application health cards — one per monitored service. */

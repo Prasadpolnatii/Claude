@@ -9,6 +9,9 @@ export function Meter({ label, value, max, format, tone = "brand" }: { label: st
   const reduceMotion = useReducedMotion();
   const cls = tone === "brand" ? "meter" : `meter meter--${tone}`;
   return (
+    // No ARIA widget role here: `max` is a visual scaling threshold, not a true ceiling — value
+    // can exceed it (e.g. an error rate spiking past its "danger" reference point), which would
+    // make aria-valuenow/aria-valuemax invalid. The label + value are already real, visible text.
     <div className={cls}>
       <div className="meter__row">
         <span className="meter__label">{label}</span>
@@ -34,7 +37,15 @@ export function RingGauge({ value, size = 56, stroke = 5, tone = "ok", label }: 
   const pct = Math.min(1, Math.max(0, value / 100));
   const cls = tone === "brand" ? "ring" : `ring ring--${tone}`;
   return (
-    <span className={cls} style={{ width: size, height: size }} role="img" aria-label={label ?? `${value}%`}>
+    <span
+      className={cls}
+      style={{ width: size, height: size }}
+      role="meter"
+      aria-valuenow={value}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-label={label ?? "value"}
+    >
       <svg width={size} height={size} aria-hidden="true">
         <circle className="ring__track" cx={size / 2} cy={size / 2} r={r} fill="none" strokeWidth={stroke} />
         <motion.circle

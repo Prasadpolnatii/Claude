@@ -45,6 +45,6 @@ export const arriveTop: Variants = {
 
 export const pageTransition: Variants = {
   hidden: { opacity: 0, y: 6 },
-  show: { opacity: 1, y: 0, transition: { duration: 0.28, ease: EASE_OUT } },
-  exit: { opacity: 0, y: -4, transition: { duration: 0.14, ease: EASE_OUT } },
+  show: { opacity: 1, y: 0, transition: { duration: 0.2, ease: EASE_OUT } },
+  exit: { opacity: 0, y: -4, transition: { duration: 0.12, ease: EASE_OUT } },
 };

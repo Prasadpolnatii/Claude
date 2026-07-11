@@ -1,5 +1,5 @@
-import { useEffect, useRef } from "react";
-import { animate, useMotionValue, useReducedMotion, useTransform } from "framer-motion";
+import { useEffect } from "react";
+import { animate, motion, useMotionValue, useReducedMotion, useTransform } from "framer-motion";
 import { EASE_OUT } from "./motion.js";
 
 /**
@@ -12,22 +12,17 @@ export function AnimatedNumber({ value, formatter }: { value: number; formatter?
   const reduceMotion = useReducedMotion();
   const mv = useMotionValue(0);
   const rounded = useTransform(mv, (v) => (formatter ? formatter(Math.round(v)) : Math.round(v).toLocaleString()));
-  const spanRef = useRef<HTMLSpanElement>(null);
-  const first = useRef(true);
 
   useEffect(() => {
-    const from = first.current ? 0 : mv.get();
-    first.current = false;
     if (reduceMotion) {
       mv.set(value);
       return;
     }
-    const controls = animate(from, value, { duration: 0.6, ease: EASE_OUT });
+    // animate(motionValue, to) always tweens from the value's current position,
+    // so re-renders naturally continue from wherever the last animation landed.
+    const controls = animate(mv, value, { duration: 0.6, ease: EASE_OUT });
     return controls.stop;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value, reduceMotion]);
+  }, [value, reduceMotion, mv]);
 
-  useEffect(() => rounded.on("change", (v) => { if (spanRef.current) spanRef.current.textContent = String(v); }), [rounded]);
-
-  return <span ref={spanRef}>0</span>;
+  return <motion.span>{rounded}</motion.span>;
 }

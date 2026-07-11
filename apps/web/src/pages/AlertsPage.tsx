@@ -91,7 +91,7 @@ export function AlertsPage() {
       {error && <ErrorNote>{error}</ErrorNote>}
 
       {loading ? (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div className="skeleton-stack">
           {Array.from({ length: 4 }).map((_, i) => <ListRowSkeleton key={i} />)}
         </div>
       ) : (

@@ -72,7 +72,7 @@ export function SopSearch() {
       {retrErr && <ErrorNote>{retrErr}</ErrorNote>}
 
       {(answer.streaming || answer.result || answer.error) && (
-        <div style={{ marginTop: 16 }}>
+        <div className="sop__answer">
           <AIBlock<SopSearchAnswer>
             title="Grounded answer"
             streaming={answer.streaming}
@@ -84,17 +84,17 @@ export function SopSearch() {
         </div>
       )}
       {answer.error && (
-        <ErrorNote title={answer.error.code}>{answer.error.message}</ErrorNote>
+        <ErrorNote><code>{answer.error.code}</code> — {answer.error.message}</ErrorNote>
       )}
 
-      <motion.ul className="sop__hits" variants={staggerContainer} initial="hidden" animate="show" style={{ marginTop: 16 }}>
+      <motion.ul className="sop__hits" variants={staggerContainer} initial="hidden" animate="show">
         {hits.map((h) => (
           <motion.li key={h.id} variants={fadeUp}>
             <div className="sop__hit-head">
               <strong>{h.title}</strong>
               <span className="muted small">{(h.score * 100).toFixed(0)}% match</span>
             </div>
-            <p className="muted" style={{ marginBottom: 0 }}>{h.text}</p>
+            <p className="muted">{h.text}</p>
           </motion.li>
         ))}
       </motion.ul>
