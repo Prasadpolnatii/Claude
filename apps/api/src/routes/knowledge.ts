@@ -4,12 +4,12 @@ import { z } from "zod";
 import { Knowledge } from "../models/index.js";
 import { serializeKnowledge } from "../features/serialize.js";
 import { recordAudit } from "../features/audit.js";
-import { asyncHandler, badRequest, HttpError } from "../middleware/error.js";
+import { asyncHandler, notFoundError, parseOrThrow } from "../middleware/error.js";
 import { requireRole } from "../auth/jwt.js";
 
 export const knowledgeRouter = Router();
 
-const notFound = () => new HttpError(404, { code: "not_found", message: "Article not found.", retryable: false });
+const notFound = () => notFoundError("Article");
 
 /**
  * GET /api/knowledge — list articles (metadata + body; the corpus is small).
@@ -55,17 +55,16 @@ knowledgeRouter.post(
   "/",
   requireRole("admin"),
   asyncHandler(async (req: Request, res: Response) => {
-    const parsed = upsertSchema.safeParse(req.body);
-    if (!parsed.success) throw badRequest(parsed.error.issues.map((i) => i.message).join("; "));
+    const data = parseOrThrow(upsertSchema, req.body);
     const { tenantId, userId, role } = req.auth!;
     const doc = await Knowledge.create({
       tenantId,
-      title: parsed.data.title,
-      category: parsed.data.category ?? "general",
-      tags: parsed.data.tags ?? [],
-      body: parsed.data.body,
+      title: data.title,
+      category: data.category ?? "general",
+      tags: data.tags ?? [],
+      body: data.body,
     });
-    recordAudit({ tenantId, actor: userId, role, action: "knowledge.create", target: String(doc._id), meta: { title: parsed.data.title } });
+    recordAudit({ tenantId, actor: userId, role, action: "knowledge.create", target: String(doc._id), meta: { title: data.title } });
     res.status(201).json({ article: serializeKnowledge(doc) });
   }),
 );
@@ -76,16 +75,15 @@ knowledgeRouter.put(
   requireRole("admin"),
   asyncHandler(async (req: Request, res: Response) => {
     if (!mongoose.isValidObjectId(req.params.id)) throw notFound();
-    const parsed = upsertSchema.safeParse(req.body);
-    if (!parsed.success) throw badRequest(parsed.error.issues.map((i) => i.message).join("; "));
+    const data = parseOrThrow(upsertSchema, req.body);
     const { tenantId, userId, role } = req.auth!;
     const doc = await Knowledge.findOne({ _id: req.params.id, tenantId });
     if (!doc) throw notFound();
 
-    doc.title = parsed.data.title;
-    doc.category = parsed.data.category ?? "general";
-    doc.tags = parsed.data.tags ?? [];
-    doc.body = parsed.data.body;
+    doc.title = data.title;
+    doc.category = data.category ?? "general";
+    doc.tags = data.tags ?? [];
+    doc.body = data.body;
     await doc.save();
     recordAudit({ tenantId, actor: userId, role, action: "knowledge.update", target: String(doc._id) });
     res.json({ article: serializeKnowledge(doc) });

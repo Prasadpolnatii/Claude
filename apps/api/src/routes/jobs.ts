@@ -1,15 +1,12 @@
 import { Router, type Request, type Response } from "express";
 import { z } from "zod";
 import type { ApiError, Job, JobStreamEvent, JobType } from "@ops-copilot/shared";
-import { generativeQueue, queueEvents } from "../queue/queue.js";
+import { generativeQueue, jobOptions, queueEvents, safeId } from "../queue/queue.js";
 import { requireAuth, requireStreamToken, signStreamToken } from "../auth/jwt.js";
 import { generativeLimiter } from "../middleware/rateLimit.js";
-import { asyncHandler, badRequest } from "../middleware/error.js";
+import { asyncHandler, parseOrThrow } from "../middleware/error.js";
 
 export const jobsRouter = Router();
-
-/** BullMQ custom job ids may not contain ":". Keep them filesystem/id-safe. */
-const safeId = (s: string) => s.replace(/[^a-zA-Z0-9_-]/g, "_");
 
 const submitSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("ticket_summary"), input: z.object({ ticketText: z.string().min(1) }) }),
@@ -25,8 +22,7 @@ const submitSchema = z.discriminatedUnion("type", [
  * Supports `Idempotency-Key` so a double-click doesn't burn two LLM calls.
  */
 jobsRouter.post("/", requireAuth, generativeLimiter, asyncHandler(async (req: Request, res: Response) => {
-  const parsed = submitSchema.safeParse(req.body);
-  if (!parsed.success) throw badRequest(parsed.error.issues.map((i) => i.message).join("; "));
+  const data = parseOrThrow(submitSchema, req.body);
 
   const tenantId = req.auth!.tenantId;
   const idempotencyKey = req.header("idempotency-key");
@@ -41,9 +37,9 @@ jobsRouter.post("/", requireAuth, generativeLimiter, asyncHandler(async (req: Re
   }
 
   const job = await generativeQueue.add(
-    parsed.data.type,
-    { tenantId, type: parsed.data.type as JobType, input: parsed.data.input },
-    { jobId, removeOnComplete: { age: 3600 }, removeOnFail: { age: 86400 }, attempts: 2, backoff: { type: "exponential", delay: 2000 } },
+    data.type,
+    { tenantId, type: data.type as JobType, input: data.input },
+    jobOptions(jobId),
   );
 
   res.status(202).json({ jobId: job.id });

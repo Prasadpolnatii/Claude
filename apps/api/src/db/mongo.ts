@@ -36,15 +36,6 @@ export class DbUnavailableError extends Error {
   }
 }
 
-/** Lazy-connect for code paths (e.g. the worker) not behind the requireMongo guard. */
-export async function ensureMongo(): Promise<void> {
-  try {
-    await connectMongo();
-  } catch {
-    throw new DbUnavailableError();
-  }
-}
-
 export function mongoState(): MongoState {
   return state;
 }

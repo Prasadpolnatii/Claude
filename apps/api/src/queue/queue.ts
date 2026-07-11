@@ -1,4 +1,4 @@
-import { Queue, QueueEvents, type ConnectionOptions } from "bullmq";
+import { Queue, QueueEvents, type ConnectionOptions, type JobsOptions } from "bullmq";
 import IORedis from "ioredis";
 import type { JobType } from "@ops-copilot/shared";
 import { config } from "../config.js";
@@ -26,6 +26,18 @@ export interface JobPayload {
 }
 
 export const generativeQueue = new Queue<JobPayload>(JOB_QUEUE, { connection: sharedConnection });
+
+/** BullMQ custom job ids may not contain ":". Keep them id-safe. */
+export const safeId = (s: string) => s.replace(/[^a-zA-Z0-9_-]/g, "_");
+
+/** Shared enqueue options: optional idempotency id, auto-clean, and retry with backoff. */
+export const jobOptions = (jobId?: string): JobsOptions => ({
+  jobId,
+  removeOnComplete: { age: 3600 },
+  removeOnFail: { age: 86400 },
+  attempts: 2,
+  backoff: { type: "exponential", delay: 2000 },
+});
 
 /** Shared events bus so the SSE route can subscribe to job progress. */
 export const queueEvents = new QueueEvents(JOB_QUEUE, { connection: sharedConnection });

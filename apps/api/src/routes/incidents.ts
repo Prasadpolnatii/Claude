@@ -5,13 +5,13 @@ import { INCIDENT_SEVERITIES, INCIDENT_STATUSES } from "@ops-copilot/shared";
 import { Incident } from "../models/index.js";
 import { serializeIncidentDetail, serializeIncidentRow } from "../features/serialize.js";
 import { recordAudit } from "../features/audit.js";
-import { asyncHandler, badRequest, HttpError } from "../middleware/error.js";
+import { asyncHandler, badRequest, notFoundError, parseOrThrow } from "../middleware/error.js";
 
 export const incidentsRouter = Router();
 
 const SEVERITY_ORDER: Record<string, number> = { sev1: 0, sev2: 1, sev3: 2, sev4: 3 };
 
-const notFound = () => new HttpError(404, { code: "not_found", message: "Incident not found.", retryable: false });
+const notFound = () => notFoundError("Incident");
 
 /** Parse a repeated/CSV query param into a validated subset of `allowed`. */
 function multi(raw: unknown, allowed: readonly string[]): string[] | undefined {
@@ -70,19 +70,18 @@ const createSchema = z.object({
 incidentsRouter.post(
   "/",
   asyncHandler(async (req: Request, res: Response) => {
-    const parsed = createSchema.safeParse(req.body);
-    if (!parsed.success) throw badRequest(parsed.error.issues.map((i) => i.message).join("; "));
+    const data = parseOrThrow(createSchema, req.body);
     const { tenantId, userId, role } = req.auth!;
 
     const now = new Date();
     const doc = await Incident.create({
       tenantId,
-      ...parsed.data,
+      ...data,
       status: "open",
       startedAt: now,
-      timeline: [{ at: now, kind: "detected", message: `Incident declared (${parsed.data.severity.toUpperCase()})`, actor: userId }],
+      timeline: [{ at: now, kind: "detected", message: `Incident declared (${data.severity.toUpperCase()})`, actor: userId }],
     });
-    recordAudit({ tenantId, actor: userId, role, action: "incident.create", target: String(doc._id), meta: { severity: parsed.data.severity, service: parsed.data.service } });
+    recordAudit({ tenantId, actor: userId, role, action: "incident.create", target: String(doc._id), meta: { severity: data.severity, service: data.service } });
     res.status(201).json({ incident: serializeIncidentDetail(doc) });
   }),
 );
@@ -132,13 +131,12 @@ incidentsRouter.post(
   "/:id/note",
   asyncHandler(async (req: Request, res: Response) => {
     if (!mongoose.isValidObjectId(req.params.id)) throw notFound();
-    const parsed = noteSchema.safeParse(req.body);
-    if (!parsed.success) throw badRequest(parsed.error.issues.map((i) => i.message).join("; "));
+    const data = parseOrThrow(noteSchema, req.body);
     const { tenantId, userId } = req.auth!;
     const doc = await Incident.findOne({ _id: req.params.id, tenantId });
     if (!doc) throw notFound();
 
-    doc.timeline.push({ at: new Date(), kind: "note", message: parsed.data.message, actor: userId });
+    doc.timeline.push({ at: new Date(), kind: "note", message: data.message, actor: userId });
     await doc.save();
     res.json({ incident: serializeIncidentDetail(doc) });
   }),
@@ -151,22 +149,21 @@ incidentsRouter.patch(
   "/:id/severity",
   asyncHandler(async (req: Request, res: Response) => {
     if (!mongoose.isValidObjectId(req.params.id)) throw notFound();
-    const parsed = severitySchema.safeParse(req.body);
-    if (!parsed.success) throw badRequest(parsed.error.issues.map((i) => i.message).join("; "));
+    const data = parseOrThrow(severitySchema, req.body);
     const { tenantId, userId, role } = req.auth!;
     const doc = await Incident.findOne({ _id: req.params.id, tenantId });
     if (!doc) throw notFound();
 
     const from = doc.severity;
-    doc.severity = parsed.data.severity;
+    doc.severity = data.severity;
     doc.timeline.push({
       at: new Date(),
       kind: "status_change",
-      message: `Severity changed ${String(from).toUpperCase()} → ${parsed.data.severity.toUpperCase()}`,
+      message: `Severity changed ${String(from).toUpperCase()} → ${data.severity.toUpperCase()}`,
       actor: userId,
     });
     await doc.save();
-    recordAudit({ tenantId, actor: userId, role, action: "incident.severity", target: String(doc._id), meta: { from, to: parsed.data.severity } });
+    recordAudit({ tenantId, actor: userId, role, action: "incident.severity", target: String(doc._id), meta: { from, to: data.severity } });
     res.json({ incident: serializeIncidentDetail(doc) });
   }),
 );

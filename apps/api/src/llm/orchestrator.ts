@@ -7,7 +7,6 @@ import type {
   SopSearchAnswer,
   TicketSummary,
 } from "@ops-copilot/shared";
-import { CONFIDENCE_FLOOR } from "@ops-copilot/shared";
 import { chat } from "./client.js";
 import { redactAll, RedactionError } from "./redaction.js";
 import { searchSops, type SopHit } from "../features/sopStore.js";
@@ -262,10 +261,6 @@ function wrap<T>(
     model,
     redacted: Object.keys(hits).length > 0,
   };
-}
-
-export function isLowConfidence(r: GroundedResult<unknown>): boolean {
-  return r.confidence < CONFIDENCE_FLOOR;
 }
 
 const truncate = (s: string, n = 240) => (s.length > n ? s.slice(0, n) + "…" : s);

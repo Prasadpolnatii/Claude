@@ -2,11 +2,11 @@ import { Router, type Request, type Response } from "express";
 import mongoose from "mongoose";
 import type { JobType } from "@ops-copilot/shared";
 import { Rca } from "../models/index.js";
-import { generativeQueue } from "../queue/queue.js";
+import { generativeQueue, jobOptions, safeId } from "../queue/queue.js";
 import { rcaGenerateSchema, rcaSaveInputSchema } from "../features/rca.js";
 import { requireMongo } from "../middleware/requireMongo.js";
 import { generativeLimiter } from "../middleware/rateLimit.js";
-import { asyncHandler, badRequest } from "../middleware/error.js";
+import { asyncHandler, notFoundError, parseOrThrow } from "../middleware/error.js";
 
 export const rcaRouter = Router();
 
@@ -18,13 +18,12 @@ export const rcaRouter = Router();
  * The client streams the result via GET /api/jobs/:id/stream.
  */
 rcaRouter.post("/generate", generativeLimiter, asyncHandler(async (req: Request, res: Response) => {
-  const parsed = rcaGenerateSchema.safeParse(req.body);
-  if (!parsed.success) throw badRequest(parsed.error.issues.map((i) => i.message).join("; "));
+  const data = parseOrThrow(rcaGenerateSchema, req.body);
 
   const tenantId = req.auth!.tenantId;
   const idempotencyKey = req.header("idempotency-key");
   const jobId = idempotencyKey
-    ? `idem_${tenantId}_rca_${idempotencyKey.replace(/[^a-zA-Z0-9_-]/g, "_")}`
+    ? `idem_${tenantId}_rca_${safeId(idempotencyKey)}`
     : undefined;
 
   const job = await generativeQueue.add(
@@ -33,12 +32,12 @@ rcaRouter.post("/generate", generativeLimiter, asyncHandler(async (req: Request,
       tenantId,
       type: "rca" as JobType,
       input: {
-        incidentSummary: parsed.data.incidentSummary,
-        logSnippet: parsed.data.logSnippet,
-        incidentId: parsed.data.incidentId,
+        incidentSummary: data.incidentSummary,
+        logSnippet: data.logSnippet,
+        incidentId: data.incidentId,
       },
     },
-    { jobId, removeOnComplete: { age: 3600 }, removeOnFail: { age: 86400 }, attempts: 2, backoff: { type: "exponential", delay: 2000 } },
+    jobOptions(jobId),
   );
 
   res.status(202).json({ jobId: job.id });
@@ -49,11 +48,10 @@ rcaRouter.post("/generate", generativeLimiter, asyncHandler(async (req: Request,
  * Upserts one current RCA per incidentId when provided, else inserts a new one.
  */
 rcaRouter.post("/", requireMongo, asyncHandler(async (req: Request, res: Response) => {
-  const parsed = rcaSaveInputSchema.safeParse(req.body);
-  if (!parsed.success) throw badRequest(parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "));
+  const data = parseOrThrow(rcaSaveInputSchema, req.body);
 
   const tenantId = req.auth!.tenantId;
-  const { incidentId, ...doc } = parsed.data;
+  const { incidentId, ...doc } = data;
 
   let saved;
   if (incidentId) {
@@ -71,11 +69,8 @@ rcaRouter.post("/", requireMongo, asyncHandler(async (req: Request, res: Respons
 /** GET /api/rca/:id — fetch a saved RCA. Needs Mongo. */
 rcaRouter.get("/:id", requireMongo, asyncHandler(async (req: Request, res: Response) => {
   const { id } = req.params;
-  if (!mongoose.isValidObjectId(id)) throw badRequest("invalid rca id");
+  if (!mongoose.isValidObjectId(id)) throw notFoundError("RCA");
   const rca = await Rca.findOne({ _id: id, tenantId: req.auth!.tenantId }).lean();
-  if (!rca) {
-    res.status(404).json({ error: { code: "not_found", message: "RCA not found.", retryable: false } });
-    return;
-  }
+  if (!rca) throw notFoundError("RCA");
   res.json({ rca });
 }));

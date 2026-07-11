@@ -101,7 +101,7 @@ ai-ops-copilot/
     │       └── integration/realdb.test.ts # real-DB integration tests
     └── web/                          # @ops-copilot/web (React + Vite)
         └── src/
-            ├── App.tsx               # tabs: Incident Workspace · SOP Search · RCA
+            ├── App.tsx               # tabs: Overview · Incidents · Alerts · Health · Queues · SOP Search · RCA · Knowledge · Audit
             ├── api/client.ts         # typed API client + SSE
             ├── hooks/useJob.ts       # useJobStream — submit + consume SSE
             ├── components/           # AIBlock · EditableSummary · EditableRca
