@@ -28,3 +28,6 @@ npm-debug.log*
 
 # test / coverage
 coverage/
+
+# local Redis snapshot (created by a locally running redis-server)
+dump.rdb

@@ -5,9 +5,9 @@ import type { JobType } from "@ops-copilot/shared";
 import { addSopChunks, searchSops } from "../features/sopStore.js";
 import { chunkText } from "../features/chunker.js";
 import { extractText } from "../features/docExtract.js";
-import { generativeQueue } from "../queue/queue.js";
+import { generativeQueue, jobOptions } from "../queue/queue.js";
 import { generativeLimiter } from "../middleware/rateLimit.js";
-import { asyncHandler, badRequest } from "../middleware/error.js";
+import { asyncHandler, badRequest, parseOrThrow } from "../middleware/error.js";
 
 export const sopsRouter = Router();
 
@@ -42,14 +42,13 @@ sopsRouter.post("/upload", generativeLimiter, upload.single("file"), asyncHandle
  */
 const searchSchema = z.object({ query: z.string().trim().min(1).max(1000) });
 sopsRouter.post("/search", generativeLimiter, asyncHandler(async (req: Request, res: Response) => {
-  const parsed = searchSchema.safeParse(req.body);
-  if (!parsed.success) throw badRequest(parsed.error.issues.map((i) => i.message).join("; "));
+  const data = parseOrThrow(searchSchema, req.body);
 
   const tenantId = req.auth!.tenantId;
   const job = await generativeQueue.add(
     "sop_search",
-    { tenantId, type: "sop_search" as JobType, input: { query: parsed.data.query } },
-    { removeOnComplete: { age: 3600 }, removeOnFail: { age: 86400 }, attempts: 2, backoff: { type: "exponential", delay: 2000 } },
+    { tenantId, type: "sop_search" as JobType, input: { query: data.query } },
+    jobOptions(),
   );
   res.status(202).json({ jobId: job.id });
 }));
@@ -65,8 +64,7 @@ sopsRouter.get("/search", asyncHandler(async (req: Request, res: Response) => {
 /** POST /api/sops — add a single runbook section directly (no file). */
 const upsertSchema = z.object({ title: z.string().min(1), text: z.string().min(1) });
 sopsRouter.post("/", asyncHandler(async (req: Request, res: Response) => {
-  const parsed = upsertSchema.safeParse(req.body);
-  if (!parsed.success) throw badRequest(parsed.error.issues.map((i) => i.message).join("; "));
-  const stored = await addSopChunks(req.auth!.tenantId, parsed.data.title, chunkText(parsed.data.text));
-  res.status(201).json({ document: parsed.data.title, chunks: stored });
+  const data = parseOrThrow(upsertSchema, req.body);
+  const stored = await addSopChunks(req.auth!.tenantId, data.title, chunkText(data.text));
+  res.status(201).json({ document: data.title, chunks: stored });
 }));

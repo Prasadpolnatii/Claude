@@ -1,6 +1,9 @@
 import { useState, type ReactNode } from "react";
+import { motion } from "framer-motion";
+import { AlertTriangle, ChevronDown, ChevronUp, Lock, Pencil, Sparkle } from "lucide-react";
 import type { GroundedResult } from "@ops-copilot/shared";
 import { CONFIDENCE_FLOOR } from "@ops-copilot/shared";
+import { fade } from "./ui/motion.js";
 
 /**
  * AIBlock — the trust-UX primitive. Every AI output in the product renders
@@ -28,10 +31,10 @@ export function AIBlock<T>({ title, result, streaming, streamText, children, onE
   const low = result ? result.confidence < CONFIDENCE_FLOOR : false;
 
   return (
-    <section className="ai-block" aria-busy={streaming}>
+    <motion.section className="ai-block" aria-busy={streaming} variants={fade} initial="hidden" animate="show">
       <header className="ai-block__head">
         <h3>{title}</h3>
-        <span className="ai-block__badge">AI-generated — verify before acting</span>
+        <span className="ai-block__badge"><Sparkle size={11} /> AI-generated — verify before acting</span>
       </header>
 
       {/* Streaming: ARIA live region so screen readers announce tokens. */}
@@ -46,7 +49,7 @@ export function AIBlock<T>({ title, result, streaming, streamText, children, onE
         <>
           {result.citations.length === 0 ? (
             <p className="ai-block__nosource" role="status">
-              ⚠️ No supporting source found — this answer is ungrounded. Treat with caution.
+              <AlertTriangle size={14} /> No supporting source found — this answer is ungrounded. Treat with caution.
             </p>
           ) : null}
 
@@ -57,16 +60,21 @@ export function AIBlock<T>({ title, result, streaming, streamText, children, onE
               {low ? "Low confidence" : "Grounded"} · {(result.confidence * 100).toFixed(0)}%
             </span>
             <span className="ai-block__model">{result.model}</span>
-            {result.redacted && <span className="ai-block__redacted" title="PII/secrets scrubbed before the model saw this">🔒 redacted</span>}
+            {result.redacted && (
+              <span className="ai-block__redacted" title="PII/secrets scrubbed before the model saw this">
+                <Lock size={11} /> redacted
+              </span>
+            )}
             {result.citations.length > 0 && (
               <button className="link" onClick={() => setShowSources((s) => !s)}>
+                {showSources ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
                 {showSources ? "Hide" : "Show"} {result.citations.length} source
                 {result.citations.length > 1 ? "s" : ""}
               </button>
             )}
             {onEdit && (
               <button className="link" onClick={onEdit}>
-                ✎ Edit before use
+                <Pencil size={12} /> Edit before use
               </button>
             )}
           </footer>
@@ -83,6 +91,6 @@ export function AIBlock<T>({ title, result, streaming, streamText, children, onE
           )}
         </>
       )}
-    </section>
+    </motion.section>
   );
 }

@@ -3,10 +3,10 @@ import mongoose from "mongoose";
 import { z } from "zod";
 import type { JobType } from "@ops-copilot/shared";
 import { Summary, Ticket } from "../models/index.js";
-import { generativeQueue } from "../queue/queue.js";
+import { generativeQueue, jobOptions, safeId } from "../queue/queue.js";
 import { ticketSummaryInputSchema } from "../features/summary.js";
 import { generativeLimiter } from "../middleware/rateLimit.js";
-import { asyncHandler, badRequest } from "../middleware/error.js";
+import { asyncHandler, notFoundError, parseOrThrow } from "../middleware/error.js";
 
 export const ticketsRouter = Router();
 
@@ -24,9 +24,8 @@ const createSchema = z.object({
 
 /** POST /api/tickets — ingest a ticket. */
 ticketsRouter.post("/", asyncHandler(async (req: Request, res: Response) => {
-  const parsed = createSchema.safeParse(req.body);
-  if (!parsed.success) throw badRequest(parsed.error.issues.map((i) => i.message).join("; "));
-  const ticket = await Ticket.create({ ...parsed.data, tenantId: req.auth!.tenantId });
+  const data = parseOrThrow(createSchema, req.body);
+  const ticket = await Ticket.create({ ...data, tenantId: req.auth!.tenantId });
   res.status(201).json({ ticket });
 }));
 
@@ -38,24 +37,21 @@ ticketsRouter.post("/", asyncHandler(async (req: Request, res: Response) => {
  */
 ticketsRouter.post("/:id/summarize", generativeLimiter, asyncHandler(async (req: Request, res: Response) => {
   const { id } = req.params;
-  if (!mongoose.isValidObjectId(id)) throw badRequest("invalid ticket id");
+  if (!mongoose.isValidObjectId(id)) throw notFoundError("Ticket");
 
   const tenantId = req.auth!.tenantId;
   const ticket = await Ticket.findOne({ _id: id, tenantId }).lean();
-  if (!ticket) {
-    res.status(404).json({ error: { code: "not_found", message: "Ticket not found.", retryable: false } });
-    return;
-  }
+  if (!ticket) throw notFoundError("Ticket");
 
   const idempotencyKey = req.header("idempotency-key");
   const jobId = idempotencyKey
-    ? `idem_${tenantId}_summ_${String(id)}_${idempotencyKey.replace(/[^a-zA-Z0-9_-]/g, "_")}`
+    ? `idem_${tenantId}_summ_${String(id)}_${safeId(idempotencyKey)}`
     : undefined;
 
   const job = await generativeQueue.add(
     "ticket_summary",
     { tenantId, type: "ticket_summary" as JobType, input: { ticketText: ticket.body, ticketId: String(id) } },
-    { jobId, removeOnComplete: { age: 3600 }, removeOnFail: { age: 86400 }, attempts: 2, backoff: { type: "exponential", delay: 2000 } },
+    jobOptions(jobId),
   );
 
   res.status(202).json({ jobId: job.id, ticketId: String(id) });
@@ -64,7 +60,7 @@ ticketsRouter.post("/:id/summarize", generativeLimiter, asyncHandler(async (req:
 /** GET /api/tickets/:id/summary — fetch the saved (possibly human-edited) summary. */
 ticketsRouter.get("/:id/summary", asyncHandler(async (req: Request, res: Response) => {
   const { id } = req.params;
-  if (!mongoose.isValidObjectId(id)) throw badRequest("invalid ticket id");
+  if (!mongoose.isValidObjectId(id)) throw notFoundError("Ticket");
   const summary = await Summary.findOne({ tenantId: req.auth!.tenantId, ticketId: id }).lean();
   res.json({ summary: summary ?? null });
 }));
@@ -76,21 +72,17 @@ ticketsRouter.get("/:id/summary", asyncHandler(async (req: Request, res: Respons
  */
 ticketsRouter.put("/:id/summary", asyncHandler(async (req: Request, res: Response) => {
   const { id } = req.params;
-  if (!mongoose.isValidObjectId(id)) throw badRequest("invalid ticket id");
+  if (!mongoose.isValidObjectId(id)) throw notFoundError("Ticket");
 
-  const parsed = ticketSummaryInputSchema.safeParse(req.body);
-  if (!parsed.success) throw badRequest(parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "));
+  const data = parseOrThrow(ticketSummaryInputSchema, req.body);
 
   const tenantId = req.auth!.tenantId;
   // Tenant-scoped existence check so we never create a summary for another
   // tenant's (or a nonexistent) ticket.
   const ticket = await Ticket.findOne({ _id: id, tenantId }).select("_id").lean();
-  if (!ticket) {
-    res.status(404).json({ error: { code: "not_found", message: "Ticket not found.", retryable: false } });
-    return;
-  }
+  if (!ticket) throw notFoundError("Ticket");
 
-  const { headline, summary, impact, nextActions, editedByHuman, jobId } = parsed.data;
+  const { headline, summary, impact, nextActions, editedByHuman, jobId } = data;
   const saved = await Summary.findOneAndUpdate(
     { tenantId, ticketId: id },
     { $set: { headline, summary, impact, nextActions, editedByHuman, jobId } },

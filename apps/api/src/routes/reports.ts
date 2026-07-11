@@ -3,7 +3,7 @@ import mongoose from "mongoose";
 import type { Alert as AlertType, IncidentDetail } from "@ops-copilot/shared";
 import { Alert, Incident } from "../models/index.js";
 import { serializeAlert, serializeIncidentDetail } from "../features/serialize.js";
-import { asyncHandler, HttpError } from "../middleware/error.js";
+import { asyncHandler, notFoundError } from "../middleware/error.js";
 
 export const reportsRouter = Router();
 
@@ -23,12 +23,10 @@ export interface IncidentReport {
 reportsRouter.get(
   "/incident/:id",
   asyncHandler(async (req: Request, res: Response) => {
-    if (!mongoose.isValidObjectId(req.params.id)) {
-      throw new HttpError(404, { code: "not_found", message: "Incident not found.", retryable: false });
-    }
+    if (!mongoose.isValidObjectId(req.params.id)) throw notFoundError("Incident");
     const tenantId = req.auth!.tenantId;
     const doc = await Incident.findOne({ _id: req.params.id, tenantId });
-    if (!doc) throw new HttpError(404, { code: "not_found", message: "Incident not found.", retryable: false });
+    if (!doc) throw notFoundError("Incident");
 
     const incident = serializeIncidentDetail(doc);
     const windowEnd = doc.resolvedAt ?? new Date();

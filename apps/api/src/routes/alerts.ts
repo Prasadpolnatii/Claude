@@ -7,11 +7,11 @@ import { subscribeAlerts } from "../features/alertsBus.js";
 import { recordAudit } from "../features/audit.js";
 import { requireAuth, requireAlertStreamToken, signAlertStreamToken } from "../auth/jwt.js";
 import { requireMongo } from "../middleware/requireMongo.js";
-import { asyncHandler, badRequest, HttpError } from "../middleware/error.js";
+import { asyncHandler, badRequest, notFoundError } from "../middleware/error.js";
 
 export const alertsRouter = Router();
 
-const notFound = () => new HttpError(404, { code: "not_found", message: "Alert not found.", retryable: false });
+const notFound = () => notFoundError("Alert");
 
 /**
  * GET /api/alerts — historical list.

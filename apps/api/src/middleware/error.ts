@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
+import type { z } from "zod";
 import type { ApiError, ApiErrorBody } from "@ops-copilot/shared";
 
 /**
@@ -36,6 +37,17 @@ export function errorHandler(
 
 export const badRequest = (message: string) =>
   new HttpError(400, { code: "bad_request", message, retryable: false });
+
+/** 404 for a missing (or malformed-id) resource, e.g. `notFoundError("Incident")`. */
+export const notFoundError = (resource: string) =>
+  new HttpError(404, { code: "not_found", message: `${resource} not found.`, retryable: false });
+
+/** Validate `body` against `schema`, throwing a 400 with the zod messages on failure. */
+export function parseOrThrow<T>(schema: z.ZodType<T>, body: unknown): T {
+  const parsed = schema.safeParse(body);
+  if (!parsed.success) throw badRequest(parsed.error.issues.map((i) => i.message).join("; "));
+  return parsed.data;
+}
 
 /**
  * Wrap async route handlers so a rejected promise reaches `errorHandler` instead

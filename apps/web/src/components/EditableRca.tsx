@@ -1,7 +1,11 @@
 import { useState } from "react";
+import { motion } from "framer-motion";
+import { CheckCircle2, Pencil, Save } from "lucide-react";
 import type { GroundedResult, RcaDocument } from "@ops-copilot/shared";
 import { AIBlock } from "./AIBlock.js";
 import { saveRca, type SavedRca } from "../api/client.js";
+import { ErrorNote } from "./ui/ErrorNote.js";
+import { fadeUp } from "./ui/motion.js";
 
 /**
  * Human-edit-before-save workflow for an RCA document.
@@ -71,9 +75,9 @@ export function EditableRca({ result, jobId, incidentId }: Props) {
         <label>Remediation (one per line)
           <textarea rows={3} value={draft.remediation.join("\n")} onChange={(e) => setDraft({ ...draft, remediation: lines(e.target.value) })} />
         </label>
-        {error && <div className="error-note" role="alert">{error}</div>}
+        {error && <ErrorNote>{error}</ErrorNote>}
         <div className="workspace__actions">
-          <button onClick={save} disabled={saving}>{saving ? "Saving…" : changed ? "Save edits" : "Save as-is"}</button>
+          <button className="btn" onClick={save} disabled={saving}><Save size={14} /> {saving ? "Saving…" : changed ? "Save edits" : "Save as-is"}</button>
           <button className="link" onClick={() => { setDraft(result.data); setEditing(false); }}>Cancel</button>
         </div>
       </section>
@@ -100,14 +104,14 @@ export function EditableRca({ result, jobId, incidentId }: Props) {
         )}
       </AIBlock>
       <div className="workspace__actions">
-        <button onClick={save} disabled={saving}>{saving ? "Saving…" : "Save RCA"}</button>
-        <button className="link" onClick={() => setEditing(true)}>✎ Edit first</button>
+        <button className="btn" onClick={save} disabled={saving}><Save size={14} /> {saving ? "Saving…" : "Save RCA"}</button>
+        <button className="link" onClick={() => setEditing(true)}><Pencil size={12} /> Edit first</button>
       </div>
-      {error && <div className="error-note" role="alert">{error}</div>}
+      {error && <ErrorNote>{error}</ErrorNote>}
       {saved && (
-        <p className="muted" role="status">
-          ✓ Saved {new Date(saved.updatedAt).toLocaleTimeString()} {saved.editedByHuman ? "(human-edited)" : "(accepted as drafted)"}
-        </p>
+        <motion.p className="muted saved-note" role="status" variants={fadeUp} initial="hidden" animate="show">
+          <CheckCircle2 size={14} className="ok" /> Saved {new Date(saved.updatedAt).toLocaleTimeString()} {saved.editedByHuman ? "(human-edited)" : "(accepted as drafted)"}
+        </motion.p>
       )}
     </>
   );
