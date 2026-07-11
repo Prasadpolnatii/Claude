@@ -1,4 +1,5 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap");
+/* Inter/JetBrains Mono are loaded via a non-render-blocking <link> in index.html
+ * (a CSS @import here would stall first paint on the network round-trip). */
 
 /* ════════════════════════════════════════════════════════════════════════════
  * Design tokens
@@ -409,7 +410,9 @@ label textarea, label input { margin-top: var(--space-2); }
 .navbtn:hover { color: var(--text); }
 .navbtn.active { color: var(--text); font-weight: 550; }
 .nav-indicator {
-  position: absolute; inset: 0; z-index: 0;
+  /* z-index: -1, not 0 — a positioned z-index:0 sibling paints ABOVE the icon/label text
+     (non-positioned in-flow content), regardless of DOM order, hiding them entirely. */
+  position: absolute; inset: 0; z-index: -1;
   background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--radius-sm);
 }
 

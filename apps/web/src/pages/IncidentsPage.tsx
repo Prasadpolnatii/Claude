@@ -80,7 +80,7 @@ export function IncidentsPage({ role }: { role: UserRole }) {
       {error && <ErrorNote>{error}</ErrorNote>}
 
       <div className="split">
-        <aside className="list-pane">
+        <aside className="list-pane" aria-label="Incident list">
           {loading && !data && (
             <div className="skeleton-stack">
               {Array.from({ length: 5 }).map((_, i) => <ListRowSkeleton key={i} />)}

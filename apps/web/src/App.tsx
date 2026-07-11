@@ -164,7 +164,7 @@ function TokenGate({ onSet }: { onSet: (t: string) => void }) {
   }
 
   return (
-    <div className="gate-wrap">
+    <main className="gate-wrap">
       <motion.div className="gate" initial={{ opacity: 0, y: 14, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: 0.4, ease: EASE_OUT }}>
         <span className="gate__brand"><Activity size={24} strokeWidth={2.25} /></span>
         <h1>AI Operations Dashboard</h1>
@@ -190,6 +190,6 @@ function TokenGate({ onSet }: { onSet: (t: string) => void }) {
           Enter
         </button>
       </motion.div>
-    </div>
+    </main>
   );
 }
